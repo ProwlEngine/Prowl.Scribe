@@ -520,7 +520,6 @@ namespace Prowl.Scribe
                 #else
                 renderer.DrawQuads(atlasTexture, vertices.ToArray(), indices.ToArray());
 #endif
-                
             }
             
             _textLayouts.Push(layout);

@@ -11,6 +11,7 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Numerics;
 using System.Runtime.InteropServices;
+using System.Text;
 
 namespace Prowl.Scribe
 {
@@ -607,12 +608,21 @@ namespace Prowl.Scribe
 
         #region Inline flattening & decorations
 
+        static StringBuilder _stringBuilder = new StringBuilder();
+        static List<DecorationSpan> _decorationSpans = new List<DecorationSpan>();
+        static List<LinkSpan> _linkSpans = new List<LinkSpan>();
+        static List<StyleSpan> _styleSpans = new List<StyleSpan>();
+        
         private static (string text, List<DecorationSpan> decos, List<LinkSpan> links, List<StyleSpan> styles) FlattenInlines(List<Inline> inlines)
         {
-            var sb = new System.Text.StringBuilder();
-            var decos = new List<DecorationSpan>();
-            var links = new List<LinkSpan>();
-            var styles = new List<StyleSpan>();
+            _stringBuilder.Clear();
+            var sb = _stringBuilder;
+            _decorationSpans.Clear();
+            var decos = _decorationSpans;
+            _linkSpans.Clear();
+            var links = _linkSpans;
+            _styleSpans.Clear();
+            var styles = _styleSpans;
 
             void EmitText(string s, bool bold, bool italic)
             {

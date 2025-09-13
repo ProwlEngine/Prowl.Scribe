@@ -10,10 +10,13 @@ namespace Prowl.Scribe
         public Vector2 Size { get; private set; }
         public TextLayoutSettings Settings { get; private set; }
         public string Text { get; private set; }
+        
+        private static int _createdLayouts = 0;
 
         public TextLayout()
         {
             Lines = new List<Line>();
+            _createdLayouts++;
         }
 
         internal void UpdateLayout(string text, TextLayoutSettings settings, FontSystem fontSystem)
@@ -33,6 +36,26 @@ namespace Prowl.Scribe
             CalculateSize();
         }
 
+        new Dictionary<object, float> _ascenderCache = new Dictionary<object, float>(8);
+        
+        float GetAscender(FontSystem fontSystem, FontFile font, float pixelSize)
+        {
+            if (_ascenderCache.TryGetValue(font, out var a)) return a;
+            fontSystem.GetScaledVMetrics(font, pixelSize, out var asc, out _, out _);
+            _ascenderCache[font] = asc;
+            return asc;
+        }
+
+        // Local to place a single glyph (no cross-line kerning)
+        void EmitGlyph(AtlasGlyph glyph, FontSystem fontSystem, FontFile font, float pixelSize, char c, float offsetX, float offsetY, float advanceBase, ref float x, List<GlyphInstance> outList, int charIndex, ref int lastCodepointForKerning)
+        {
+            float a = GetAscender(fontSystem, font, pixelSize);
+            var gi = new GlyphInstance(glyph, new Vector2(x + offsetX, offsetY + a), c, advanceBase, charIndex);
+            outList.Add(gi);
+            x += advanceBase;
+            lastCodepointForKerning = c; // kerning only continues within the current word/run
+        }
+        
         private void LayoutText(FontSystem fontSystem)
         {
             float currentX = 0f;
@@ -59,24 +82,6 @@ namespace Prowl.Scribe
             int lastCodepointForKerning = 0;
 
             // Ascender cache per font object; we only need 'a' to place the glyph vertically
-            var ascenderCache = new Dictionary<object, float>(8);
-            float GetAscender(FontFile font)
-            {
-                if (ascenderCache.TryGetValue(font, out var a)) return a;
-                fontSystem.GetScaledVMetrics(font, pixelSize, out var asc, out _, out _);
-                ascenderCache[font] = asc;
-                return asc;
-            }
-
-            // Local to place a single glyph (no cross-line kerning)
-            void EmitGlyph(AtlasGlyph glyph, FontFile font, char c, float offsetX, float offsetY, float advanceBase, ref float x, List<GlyphInstance> outList, int charIndex)
-            {
-                float a = GetAscender(font);
-                var gi = new GlyphInstance(glyph, new Vector2(x + offsetX, offsetY + a), c, advanceBase, charIndex);
-                outList.Add(gi);
-                x += advanceBase;
-                lastCodepointForKerning = c; // kerning only continues within the current word/run
-            }
 
             while (i < len)
             {
@@ -205,7 +210,7 @@ namespace Prowl.Scribe
                     if (wordWidthNoLeadingKerning > maxWidth)
                     {
                         i = LayoutLongWordFast(fontSystem, ref line, ref currentX, ref currentY, lineHeight,
-                                               wordStart, wordEnd, tabWidth, spaceAdvance, wrapEnabled, maxWidth, GetAscender);
+                                               wordStart, wordEnd, tabWidth, spaceAdvance, wrapEnabled, maxWidth);
                         lastCodepointForKerning = 0;
                         continue;
                     }
@@ -240,9 +245,9 @@ namespace Prowl.Scribe
                         if (k != 0f) currentX += k;
                     }
 
-                    EmitGlyph(g, g.Font, c, g.Metrics.OffsetX, g.Metrics.OffsetY,
+                    EmitGlyph(g, fontSystem, g.Font, pixelSize, c, g.Metrics.OffsetX, g.Metrics.OffsetY,
                               g.Metrics.AdvanceWidth + Settings.LetterSpacing,
-                              ref currentX, line.Glyphs, j);
+                              ref currentX, line.Glyphs, j, ref lastCodepointForKerning);
 
                     prevForKern = c;
                 }
@@ -284,8 +289,7 @@ namespace Prowl.Scribe
             float tabWidth,
             float spaceAdvance,
             bool wrapEnabled,
-            float maxWidth,
-            Func<FontFile, float> getAscender)
+            float maxWidth)
         {
             float pixelSize = Settings.PixelSize;
 
@@ -295,9 +299,10 @@ namespace Prowl.Scribe
             {
                 char c = Text[i];
 
-                FontFile font = Settings.Font;
-                if (Settings.FontSelector != null)
-                    font = Settings.FontSelector(i);
+                FontFile font = ResolveFontForIndex(i, fontSystem, Settings.Font, Settings.StyleSpans,
+                    Settings.LayoutSettings);
+                // if (Settings.FontSelector != null)
+                //     font = Settings.FontSelector(i);
                 var g = fontSystem.GetOrCreateGlyph(c, pixelSize, font);
 
                 //var g = fontSystem.GetOrCreateGlyph(c, pixelSize, Settings.PreferredFont);
@@ -329,7 +334,7 @@ namespace Prowl.Scribe
                 }
 
                 // Emit glyph
-                float a = getAscender(g.Font);
+                float a = GetAscender(fontSystem, g.Font, pixelSize);
                 var gi = new GlyphInstance(g, new Vector2(currentX + g.Metrics.OffsetX, g.Metrics.OffsetY + a), c, adv, i);
                 line.Glyphs.Add(gi);
                 currentX += adv;

@@ -80,9 +80,8 @@ namespace Prowl.Scribe
 
             // Kerning baseline: do NOT kern across whitespace
             int lastCodepointForKerning = 0;
-
-            // Ascender cache per font object; we only need 'a' to place the glyph vertically
-
+            _ascenderCache.Clear();
+            
             while (i < len)
             {
                 char ch = text[i];
@@ -154,9 +153,8 @@ namespace Prowl.Scribe
                 {
                     char c = text[j];
 
-                    FontFile font = Settings.Font;
-                    if (Settings.FontSelector != null)
-                        font = Settings.FontSelector(j);
+                    FontFile font = ResolveFontForIndex(i, fontSystem, Settings.Font, Settings.StyleSpans,
+                        Settings.LayoutSettings);
                     var g = fontSystem.GetOrCreateGlyph(c, pixelSize, font);
 
                     //var g = fontSystem.GetOrCreateGlyph(c, pixelSize, Settings.PreferredFont);
@@ -228,12 +226,9 @@ namespace Prowl.Scribe
                 for (int j = wordStart; j < wordEnd; j++)
                 {
                     char c = text[j];
-
-                    // FontFile font = Settings.Font;
+                    
                     FontFile font = ResolveFontForIndex(j, fontSystem, Settings.Font, Settings.StyleSpans,
                         Settings.LayoutSettings);
-                    // if (Settings.FontSelector != null)
-                    //     font = Settings.FontSelector(j);
                     var g = fontSystem.GetOrCreateGlyph(c, pixelSize, font);
 
                     //var g = fontSystem.GetOrCreateGlyph(c, pixelSize, Settings.PreferredFont);
@@ -301,8 +296,6 @@ namespace Prowl.Scribe
 
                 FontFile font = ResolveFontForIndex(i, fontSystem, Settings.Font, Settings.StyleSpans,
                     Settings.LayoutSettings);
-                // if (Settings.FontSelector != null)
-                //     font = Settings.FontSelector(i);
                 var g = fontSystem.GetOrCreateGlyph(c, pixelSize, font);
 
                 //var g = fontSystem.GetOrCreateGlyph(c, pixelSize, Settings.PreferredFont);

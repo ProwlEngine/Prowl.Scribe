@@ -234,20 +234,21 @@ namespace Prowl.Scribe
                 }
                 else if (op is DrawImage img)
                 {
-                    var vertsImg = new IFontRenderer.Vertex[4];
-                    var idxImg = new int[] { 0, 2, 1, 1, 2, 3 };
                     var r = img.Rect;
                     float offsetX = r.X + position.X;
                     float offsetY = r.Y + position.Y;
-                    vertsImg[0] = new IFontRenderer.Vertex(new Vector3(offsetX, offsetY, 0), FontColor.White, new Vector2(0, 0));
-                    vertsImg[1] = new IFontRenderer.Vertex(new Vector3(offsetX + r.Width, offsetY, 0), FontColor.White, new Vector2(1, 0));
-                    vertsImg[2] = new IFontRenderer.Vertex(new Vector3(offsetX, offsetY + r.Height, 0), FontColor.White, new Vector2(0, 1));
-                    vertsImg[3] = new IFontRenderer.Vertex(new Vector3(offsetX + r.Width, offsetY + r.Height, 0), FontColor.White, new Vector2(1, 1));
-                    renderer.DrawQuads(img.Texture, vertsImg, idxImg);
+                    _vertsImg[0] = new IFontRenderer.Vertex(new Vector3(offsetX, offsetY, 0), FontColor.White, new Vector2(0, 0));
+                    _vertsImg[1] = new IFontRenderer.Vertex(new Vector3(offsetX + r.Width, offsetY, 0), FontColor.White, new Vector2(1, 0));
+                    _vertsImg[2] = new IFontRenderer.Vertex(new Vector3(offsetX, offsetY + r.Height, 0), FontColor.White, new Vector2(0, 1));
+                    _vertsImg[3] = new IFontRenderer.Vertex(new Vector3(offsetX + r.Width, offsetY + r.Height, 0), FontColor.White, new Vector2(1, 1));
+                    renderer.DrawQuads(img.Texture, _vertsImg, _idxImg);
                 }
             }
         }
 
+        static IFontRenderer.Vertex[] _vertsImg = new IFontRenderer.Vertex[4];
+        static int[] _idxImg = new int[] { 0, 2, 1, 1, 2, 3 };
+        
         public static bool TryGetLinkAt(MarkdownDisplayList dl, Vector2 point, Vector2 renderOffset, out string href)
         {
             foreach (var link in dl.Links)

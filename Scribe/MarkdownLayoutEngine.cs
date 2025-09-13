@@ -10,6 +10,7 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Numerics;
+using System.Runtime.InteropServices;
 
 namespace Prowl.Scribe
 {
@@ -693,8 +694,10 @@ namespace Prowl.Scribe
             var layout = t.Layout;
             if (layout.Lines == null || layout.Lines.Count == 0) return;
 
-            var verts = new List<IFontRenderer.Vertex>(256);
-            var idx = new List<int>(512);
+            _verts.Clear();
+            var verts = _verts;
+            _indices.Clear();
+            var idx = _indices;
             int vbase = 0;
 
             string text = layout.Text ?? string.Empty;
@@ -751,16 +754,26 @@ namespace Prowl.Scribe
             }
 
             if (verts.Count > 0)
+            {
+#if NET5_0_OR_GREATER
+                renderer.DrawQuads(fontSystem.Texture, CollectionsMarshal.AsSpan(verts), CollectionsMarshal.AsSpan(idx));
+                #else
                 renderer.DrawQuads(fontSystem.Texture, verts.ToArray(), idx.ToArray());
+#endif
+            }
         }
 
+        static List<IFontRenderer.Vertex> _verts = new List<IFontRenderer.Vertex>(128);
+        static List<int> _indices = new List<int>(256);
         private static void DrawDecorations(DrawText t, Vector2 position, FontSystem fontSystem, IFontRenderer renderer, MarkdownLayoutSettings settings)
         {
             var layout = t.Layout;
             if (layout.Lines == null || layout.Lines.Count == 0) return;
 
-            var verts = new List<IFontRenderer.Vertex>(128);
-            var idx = new List<int>(256);
+            _verts.Clear();
+            var verts = _verts;
+            _indices.Clear();
+            var idx = _indices;
             int vbase = 0;
 
             // We will map each line's glyphs to absolute character indices in layout.Text.
@@ -856,7 +869,13 @@ namespace Prowl.Scribe
             }
 
             if (verts.Count > 0)
+            {
+#if NET5_0_OR_GREATER
+                renderer.DrawQuads(fontSystem.Texture, CollectionsMarshal.AsSpan(verts), CollectionsMarshal.AsSpan(idx));
+#else
                 renderer.DrawQuads(fontSystem.Texture, verts.ToArray(), idx.ToArray());
+#endif
+            }
         }
 
         private static void AddLinkHitBoxes(MarkdownDisplayList dl, DrawText t, List<LinkSpan> links)

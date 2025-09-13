@@ -224,9 +224,11 @@ namespace Prowl.Scribe
                 {
                     char c = text[j];
 
-                    FontFile font = Settings.Font;
-                    if (Settings.FontSelector != null)
-                        font = Settings.FontSelector(j);
+                    // FontFile font = Settings.Font;
+                    FontFile font = ResolveFontForIndex(j, fontSystem, Settings.Font, Settings.StyleSpans,
+                        Settings.LayoutSettings);
+                    // if (Settings.FontSelector != null)
+                    //     font = Settings.FontSelector(j);
                     var g = fontSystem.GetOrCreateGlyph(c, pixelSize, font);
 
                     //var g = fontSystem.GetOrCreateGlyph(c, pixelSize, Settings.PreferredFont);
@@ -255,6 +257,21 @@ namespace Prowl.Scribe
                 FinalizeLine(ref line, currentY, lineHeight, i, currentX);
         }
 
+        private static FontFile ResolveFontForIndex(int idx, FontSystem fs, FontFile baseFont, List<StyleSpan> spans, MarkdownLayoutSettings settings)
+        {
+            bool bold = false, italic = false;
+            for (int i = 0; i < spans.Count; i++)
+            {
+                var s = spans[i];
+                if (idx >= s.Start && idx < s.End) { bold |= s.Bold; italic |= s.Italic; if (bold && italic) break; }
+            }
+
+            if (bold && italic) return settings.BoldItalicFont;
+            if (bold) return settings.BoldFont;
+            if (italic) return settings.ItalicFont;
+            return baseFont;
+        }
+        
         // Split a too-long word across lines, char by char, with minimal overhead.
         // Note: we do not kern across line starts; inside a run we keep kerning.
         private int LayoutLongWordFast(

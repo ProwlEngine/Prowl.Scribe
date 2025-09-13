@@ -7,6 +7,7 @@
 
 using Prowl.Scribe.Internal;
 using System;
+using System.Buffers;
 using System.Collections.Generic;
 using System.Linq;
 using System.Numerics;
@@ -313,7 +314,9 @@ namespace Prowl.Scribe
             tls.MaxWidth = width;
             tls.Alignment = TextAlignment.Left;
             tls.Font = baseFont;
-            tls.FontSelector = (charIndex) => ResolveFontForIndex(charIndex, fontSystem, baseFont, styles, settings);
+            tls.StyleSpans = styles;
+            tls.LayoutSettings = settings;
+            // tls.FontSelector = (charIndex) => ResolveFontForIndex(charIndex, fontSystem, baseFont, styles, settings);
 
             var tl = fontSystem.CreateLayout(text, tls);
             var linkRanges = new List<IntRange>();
@@ -470,7 +473,8 @@ namespace Prowl.Scribe
         private static float LayoutTable(Table t, float x, float y, MarkdownDisplayList dl, FontSystem fontSystem, MarkdownLayoutSettings settings, float? widthOverride = null)
         {
             int cols = t.Rows.Max(r => r.Cells.Count);
-            float[] minCol = new float[cols];
+            // float[] minCol = new float[cols];
+            var minCol = ArrayPool<float>.Shared.Rent(cols);
             float wAvail = widthOverride ?? settings.Width;
 
             // pass 1: min widths via NoWrap measure
@@ -487,7 +491,9 @@ namespace Prowl.Scribe
                     tls.MaxWidth = float.MaxValue;
                     tls.Alignment = AlignToText(cell.Align);
                     tls.Font = settings.ParagraphFont;
-                    tls.FontSelector = (charIndex) => ResolveFontForIndex(charIndex, fontSystem, settings.ParagraphFont, styles, settings);
+                    tls.StyleSpans = styles;
+                    tls.LayoutSettings = settings;
+                    // tls.FontSelector = (charIndex) => ResolveFontForIndex(charIndex, fontSystem, settings.ParagraphFont, styles, settings);
 
                     var tl = fontSystem.CreateLayout(text, tls);
                     minCol[c] = MathF.Max(minCol[c], tl.Size.X);
@@ -496,7 +502,8 @@ namespace Prowl.Scribe
 
             // distribute to fit content width
             float totalMin = minCol.Sum();
-            float[] colW = new float[cols];
+            // float[] colW = new float[cols];
+            var colW = ArrayPool<float>.Shared.Rent(cols);
             if (totalMin <= wAvail)
             {
                 float extra = wAvail - totalMin;
@@ -510,13 +517,15 @@ namespace Prowl.Scribe
             }
 
             // Precompute column x positions for grid lines
-            float[] colX = new float[cols + 1];
+            // float[] colX = new float[cols + 1];
+            var colX = ArrayPool<float>.Shared.Rent(cols + 1);
             colX[0] = x;
             for (int c = 0; c < cols; c++) colX[c + 1] = colX[c] + colW[c];
 
             float tableTop = y;
             float rowY = y;
-            var perRowHeights = new float[t.Rows.Count];
+            // var perRowHeights = new float[t.Rows.Count];
+            var perRowHeights = ArrayPool<float>.Shared.Rent(t.Rows.Count);
 
             // Pass 2: layout rows (we'll emit text now and draw grid after we know full height)
             for (int r = 0; r < t.Rows.Count; r++)
@@ -537,7 +546,9 @@ namespace Prowl.Scribe
                     tls.MaxWidth = colW[c];
                     tls.Alignment = AlignToText(cell.Align);
                     tls.Font = settings.ParagraphFont;
-                    tls.FontSelector = (charIndex) => ResolveFontForIndex(charIndex, fontSystem, settings.ParagraphFont, styles, settings);
+                    tls.StyleSpans = styles;
+                    tls.LayoutSettings = settings;
+                    // tls.FontSelector = (charIndex) => ResolveFontForIndex(charIndex, fontSystem, settings.ParagraphFont, styles, settings);
 
                     var tl = fontSystem.CreateLayout(text, tls);
 

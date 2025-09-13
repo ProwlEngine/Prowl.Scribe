@@ -79,6 +79,8 @@ namespace Prowl.Scribe
         public TextWrapMode WrapMode;
         public TextAlignment Alignment;
         public float MaxWidth; // for wrapping, 0 = no limit
+        public List<StyleSpan> StyleSpans;
+        public MarkdownLayoutSettings LayoutSettings;
 
         public Func<int, FontFile> FontSelector; // optional: index in the full string -> font
 
@@ -91,7 +93,8 @@ namespace Prowl.Scribe
             TabSize = 4,
             WrapMode = TextWrapMode.NoWrap,
             Alignment = TextAlignment.Left,
-            MaxWidth = 0
+            MaxWidth = 0,
+            StyleSpans = new List<StyleSpan>()
         };
     }
 

@@ -40,8 +40,6 @@ namespace Prowl.Scribe
             int i = 0;
             bool hasTrailingNewline = false;
 
-            Lines.Clear();
-
             var line = new Line(new Vector2(0, currentY), 0);
 
             // Hoist Settings & constants

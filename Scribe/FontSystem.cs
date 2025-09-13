@@ -389,14 +389,14 @@ namespace Prowl.Scribe
         {
             if (string.IsNullOrEmpty(text))
             {
-                var empty = new TextLayout();
+                var empty = GetTextLayoutFromPool();
                 empty.UpdateLayout(text, settings, this);
                 return empty;
             }
 
             if (!CacheLayouts)
             {
-                var direct = new TextLayout();
+                var direct = GetTextLayoutFromPool();
                 direct.UpdateLayout(text, settings, this);
                 return direct;
             }
@@ -406,7 +406,7 @@ namespace Prowl.Scribe
             if (layoutCache.TryGetValue(key, out var cached))
                 return cached;
 
-            var layout = new TextLayout();
+            var layout = GetTextLayoutFromPool();
             layout.UpdateLayout(text, settings, this);
 
             layoutCache.Add(key, layout);
@@ -457,6 +457,17 @@ namespace Prowl.Scribe
             DrawLayout(layout, position, color);
         }
 
+        private Stack<TextLayout> _textLayouts = new Stack<TextLayout>();
+
+        private TextLayout GetTextLayoutFromPool()
+        {
+            if (_textLayouts.TryPop(out TextLayout layout))
+            {
+                return layout;
+            }
+
+            return new TextLayout();
+        }
         
         List<IFontRenderer.Vertex> _vertices = new List<IFontRenderer.Vertex>();
         List<int> _indices = new List<int>();
@@ -504,8 +515,15 @@ namespace Prowl.Scribe
 
             if (vertices.Count > 0)
             {
+                #if  NET5_0_OR_GREATER
+                renderer.DrawQuads(atlasTexture, CollectionsMarshal.AsSpan(vertices), CollectionsMarshal.AsSpan(indices));            
+                #else
                 renderer.DrawQuads(atlasTexture, vertices.ToArray(), indices.ToArray());
+#endif
+                
             }
+            
+            _textLayouts.Push(layout);
         }
 
         #endregion

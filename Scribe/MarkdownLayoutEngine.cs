@@ -470,10 +470,20 @@ namespace Prowl.Scribe
             return y + h + settings.ParagraphSpacing;
         }
 
+        private static int GetTableMaxCells(Table table)
+        {
+            int cols = 0;
+            foreach (TableRow row in table.Rows)
+            {
+                cols = Math.Max(cols, row.Cells.Count);
+            }
+
+            return cols;
+        }
+        
         private static float LayoutTable(Table t, float x, float y, MarkdownDisplayList dl, FontSystem fontSystem, MarkdownLayoutSettings settings, float? widthOverride = null)
         {
-            int cols = t.Rows.Max(r => r.Cells.Count);
-            // float[] minCol = new float[cols];
+            int cols = GetTableMaxCells(t);
             var minCol = ArrayPool<float>.Shared.Rent(cols);
             float wAvail = widthOverride ?? settings.Width;
 
@@ -502,7 +512,6 @@ namespace Prowl.Scribe
 
             // distribute to fit content width
             float totalMin = minCol.Sum();
-            // float[] colW = new float[cols];
             var colW = ArrayPool<float>.Shared.Rent(cols);
             if (totalMin <= wAvail)
             {
@@ -517,14 +526,12 @@ namespace Prowl.Scribe
             }
 
             // Precompute column x positions for grid lines
-            // float[] colX = new float[cols + 1];
             var colX = ArrayPool<float>.Shared.Rent(cols + 1);
             colX[0] = x;
             for (int c = 0; c < cols; c++) colX[c + 1] = colX[c] + colW[c];
 
             float tableTop = y;
             float rowY = y;
-            // var perRowHeights = new float[t.Rows.Count];
             var perRowHeights = ArrayPool<float>.Shared.Rent(t.Rows.Count);
 
             // Pass 2: layout rows (we'll emit text now and draw grid after we know full height)
@@ -590,7 +597,11 @@ namespace Prowl.Scribe
                     Color = settings.ColorRule
                 });
             }
-
+            
+            ArrayPool<float>.Shared.Return(minCol);
+            ArrayPool<float>.Shared.Return(colW);
+            ArrayPool<float>.Shared.Return(colX);
+            ArrayPool<float>.Shared.Return(perRowHeights);
             return tableBottom + settings.ParagraphSpacing;
         }
 

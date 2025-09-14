@@ -40,7 +40,7 @@ namespace Prowl.Scribe
         public RectangleF(float x, float y, float w, float h) { X = x; Y = y; Width = w; Height = h; }
     }
 
-    public struct DrawText : IDrawOp
+    public class DrawText : IDrawOp
     {
         public TextLayout Layout;
         public Vector2 Pos;
@@ -95,7 +95,7 @@ namespace Prowl.Scribe
         }
     }
 
-    public struct DrawQuad : IDrawOp
+    public class DrawQuad : IDrawOp
     {
         public RectangleF Rect;
         public FontColor Color;
@@ -120,7 +120,7 @@ namespace Prowl.Scribe
         }
     }
 
-    public struct DrawImage : IDrawOp
+    public class DrawImage : IDrawOp
     {
         public RectangleF Rect;
         public object Texture;
@@ -291,8 +291,10 @@ namespace Prowl.Scribe
             if (dl == null || dl.Ops.Count == 0) return;
 
             // Batch shape quads into a single DrawQuads call using the font atlas texture.
-            var verts = new List<IFontRenderer.Vertex>(128);
-            var idx = new List<int>(256);
+            _verts.Clear();
+            var verts = _verts;
+            _indices.Clear();
+            var idx = _indices;
             int vbase = 0;
 
             foreach (var op in dl.Ops)
@@ -307,7 +309,11 @@ namespace Prowl.Scribe
 
             if (verts.Count > 0)
             {
+                #if NET5_0_OR_GREATER
+                renderer.DrawQuads(fontSystem.Texture, CollectionsMarshal.AsSpan(verts), CollectionsMarshal.AsSpan(idx));
+                #else
                 renderer.DrawQuads(fontSystem.Texture, verts.ToArray(), idx.ToArray());
+                #endif
             }
 
             // Draw text and images in submission order

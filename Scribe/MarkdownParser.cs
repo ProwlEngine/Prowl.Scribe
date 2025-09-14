@@ -213,30 +213,16 @@ namespace Prowl.Scribe
     public static class Markdown
     {
         private static Dictionary<ulong, Document> _documentCache = new Dictionary<ulong, Document>();
-        // Entry point
-
 
         public static void ClearDocumentCache()
         {
             _documentCache.Clear();
         }
-        private static ulong ComputeFNV1aHash(string input)
-        {
-            const ulong FNVOffsetBasis = 14695981039346656037UL;
-            const ulong FNVPrime = 1099511628211UL;
 
-            ulong hash = FNVOffsetBasis;
-            foreach (byte b in Encoding.UTF8.GetBytes(input))
-            {
-                hash ^= b;
-                hash *= FNVPrime;
-            }
-            return hash;
-        }
-        
+        // Entry point
         public static Document Parse(string input)
         {
-            ulong hash = ComputeFNV1aHash(input);
+            ulong hash = ComputeFnv1AHash(input);
             
             if (_documentCache.TryGetValue(hash, out Document document))
             {
@@ -928,6 +914,20 @@ namespace Prowl.Scribe
             return arr;
         }
 
+        private static ulong ComputeFnv1AHash(string input)
+        {
+            ulong fnvOffsetBasis = 14695981039346656037UL;
+            ulong fnvPrime = 1099511628211UL;
+
+            ulong hash = fnvOffsetBasis;
+            foreach (byte b in Encoding.UTF8.GetBytes(input))
+            {
+                hash ^= b;
+                hash *= fnvPrime;
+            }
+            return hash;
+        }
+        
         #endregion
     }
 

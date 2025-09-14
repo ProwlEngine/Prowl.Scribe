@@ -226,7 +226,7 @@ namespace Prowl.Scribe
             const ulong FNVPrime = 1099511628211UL;
 
             ulong hash = FNVOffsetBasis;
-            foreach (byte b in System.Text.Encoding.UTF8.GetBytes(input))
+            foreach (byte b in Encoding.UTF8.GetBytes(input))
             {
                 hash ^= b;
                 hash *= FNVPrime;

@@ -1016,7 +1016,7 @@ namespace Prowl.Scribe
                 int gCount = glyphs.Count;
                 if (gCount == 0) continue;
 
-                var g2t = new int[gCount];
+                var g2t = ArrayPool<int>.Shared.Rent(gCount);
                 for (int gi = 0; gi < gCount; gi++)
                 {
                     char gc = glyphs[gi].Character;
@@ -1044,6 +1044,8 @@ namespace Prowl.Scribe
                     float h = line.Height;
                     dl.Links.Add(new LinkInfo(new RectangleF(x0, y0, x1 - x0, h), l.Href));
                 }
+                
+                ArrayPool<int>.Shared.Return(g2t);
             }
         }
 

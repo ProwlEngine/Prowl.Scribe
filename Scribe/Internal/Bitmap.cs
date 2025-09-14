@@ -1,4 +1,5 @@
 ﻿using System;
+using System.Buffers;
 using System.Numerics;
 using static Prowl.Scribe.Internal.Common;
 
@@ -327,8 +328,9 @@ namespace Prowl.Scribe.Internal
             for (int i = 0; i < windings; ++i) totalEdges += wcount[i];
 
             // +1 sentinel edge
-            var edges = new Edge[totalEdges + 1];
-            for (int i = 0; i < edges.Length; ++i) edges[i] = new Edge();
+            int edgesLength = totalEdges + 1;
+            var edges = ArrayPool<Edge>.Shared.Rent(edgesLength);
+            for (int i = 0; i < edgesLength; ++i) edges[i] = new Edge();
 
             int n = 0; // number of produced edges
             int m = 0; // running index into pts per winding
@@ -368,6 +370,8 @@ namespace Prowl.Scribe.Internal
             SortEdgesInsSort(edgePtr, n);
 
             RasterizeSortedEdges(edgePtr, n, vsubsample, offX, offY);
+            
+            ArrayPool<Edge>.Shared.Return(edges);
         }
 
         private Vector2[] FlattenCurves(GlyphVertex[] vertices, int numVerts, float objspaceFlatness, out int[] contourLengths, out int numContours)

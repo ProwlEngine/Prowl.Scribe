@@ -79,9 +79,11 @@ namespace Prowl.Scribe
         public TextWrapMode WrapMode;
         public TextAlignment Alignment;
         public float MaxWidth; // for wrapping, 0 = no limit
+        public List<StyleSpan> StyleSpans;
+        public MarkdownLayoutSettings LayoutSettings;
 
-        public Func<int, FontFile> FontSelector; // optional: index in the full string -> font
-
+        private static Stack<TextLayoutSettings> _pool = new Stack<TextLayoutSettings>();
+        
         public static TextLayoutSettings Default => new TextLayoutSettings {
             PixelSize = 16,
             Font = null,
@@ -91,8 +93,42 @@ namespace Prowl.Scribe
             TabSize = 4,
             WrapMode = TextWrapMode.NoWrap,
             Alignment = TextAlignment.Left,
-            MaxWidth = 0
+            MaxWidth = 0,
+            StyleSpans = new List<StyleSpan>()
         };
+
+        private void SetDefaultValues()
+        {
+            PixelSize = 16;
+            Font = null;
+            LetterSpacing = 0;
+            WordSpacing = 0;
+            LineHeight = 1.0f;
+            TabSize = 4;
+            WrapMode = TextWrapMode.NoWrap;
+            Alignment = TextAlignment.Left;
+            MaxWidth = 0;
+            
+            if (StyleSpans == null) StyleSpans = new List<StyleSpan>();
+            StyleSpans.Clear();
+        }
+        
+        public static TextLayoutSettings Get()
+        {
+            if (!_pool.TryPop(out TextLayoutSettings settings))
+            {
+                settings = new TextLayoutSettings();
+            }
+            
+            settings.SetDefaultValues();
+            return settings;
+        }
+
+        public static void Return(TextLayoutSettings settings)
+        {
+            settings.StyleSpans.Clear();
+            _pool.Push(settings);
+        }
     }
 
     public struct GlyphInstance
@@ -103,6 +139,8 @@ namespace Prowl.Scribe
         public float AdvanceWidth;
         public int CharIndex;
 
+        private static Stack<GlyphInstance> _pool = new Stack<GlyphInstance>();
+        
         public GlyphInstance(AtlasGlyph glyph, Vector2 position, char character, float advanceWidth, int charIndex)
         {
             Glyph = glyph;
@@ -110,6 +148,27 @@ namespace Prowl.Scribe
             Character = character;
             AdvanceWidth = advanceWidth;
             CharIndex = charIndex;
+        }
+
+        public static GlyphInstance Get(AtlasGlyph glyph, Vector2 position, char character, float advanceWidth, int charIndex)
+        {
+            if (!_pool.TryPop(out GlyphInstance instance))
+            {
+                instance = new GlyphInstance(glyph, position, character, advanceWidth, charIndex);
+            }
+            
+            instance.Glyph = glyph;
+            instance.Position = position;
+            instance.Character = character;
+            instance.AdvanceWidth = advanceWidth;
+            instance.CharIndex = charIndex;
+
+            return instance;
+        }
+
+        public static void Return(GlyphInstance instance)
+        {
+            _pool.Push(instance);
         }
     }
 
@@ -121,7 +180,7 @@ namespace Prowl.Scribe
         public Vector2 Position; // relative to layout origin
         public int StartIndex; // character index in original string
         public int EndIndex; // character index in original string
-
+        public static Stack<Line> _pool = new Stack<Line>();
         public Line(Vector2 position, int startIndex)
         {
             Glyphs = new List<GlyphInstance>();
@@ -130,6 +189,29 @@ namespace Prowl.Scribe
             Position = position;
             StartIndex = startIndex;
             EndIndex = startIndex;
+        }
+
+        public static Line Get(Vector2 position, int startIndex)
+        {
+            if (!_pool.TryPop(out Line line))
+            {
+                line = new Line(position, startIndex);
+            }
+
+            line.Position = position;
+            line.StartIndex = startIndex;
+            line.EndIndex = startIndex;
+            return line;
+        }
+
+        public static void Return(Line line)
+        {
+            foreach (GlyphInstance instance in line.Glyphs)
+            {
+                GlyphInstance.Return(instance);
+            }
+            line.Glyphs.Clear();
+            _pool.Push(line);
         }
     }
 }

@@ -389,14 +389,14 @@ namespace Prowl.Scribe
         {
             if (string.IsNullOrEmpty(text))
             {
-                var empty = new TextLayout();
+                var empty = TextLayout.Get();
                 empty.UpdateLayout(text, settings, this);
                 return empty;
             }
 
             if (!CacheLayouts)
             {
-                var direct = new TextLayout();
+                var direct = TextLayout.Get();
                 direct.UpdateLayout(text, settings, this);
                 return direct;
             }
@@ -406,7 +406,7 @@ namespace Prowl.Scribe
             if (layoutCache.TryGetValue(key, out var cached))
                 return cached;
 
-            var layout = new TextLayout();
+            var layout = TextLayout.Get();
             layout.UpdateLayout(text, settings, this);
 
             layoutCache.Add(key, layout);
@@ -423,7 +423,7 @@ namespace Prowl.Scribe
 
         public Vector2 MeasureText(string text, float pixelSize, FontFile font, float letterSpacing = 0)
         {
-            var settings = TextLayoutSettings.Default;
+            var settings = TextLayoutSettings.Get();
             settings.PixelSize = pixelSize;
             settings.Font = font;
             settings.LetterSpacing = letterSpacing;
@@ -440,7 +440,7 @@ namespace Prowl.Scribe
 
         public void DrawText(string text, Vector2 position, FontColor color, float pixelSize, FontFile font, float letterSpacing = 0)
         {
-            var settings = TextLayoutSettings.Default;
+            var settings = TextLayoutSettings.Get();
             settings.PixelSize = pixelSize;
             settings.Font = font;
             settings.LetterSpacing = letterSpacing;
@@ -457,12 +457,16 @@ namespace Prowl.Scribe
             DrawLayout(layout, position, color);
         }
 
+        List<IFontRenderer.Vertex> _vertices = new List<IFontRenderer.Vertex>();
+        List<int> _indices = new List<int>();
         public void DrawLayout(TextLayout layout, Vector2 position, FontColor color)
         {
             if (layout.Lines.Count == 0) return;
 
-            var vertices = new List<IFontRenderer.Vertex>();
-            var indices = new List<int>();
+            _vertices.Clear();
+            var vertices = _vertices;
+            _indices.Clear();
+            var indices = _indices;
             int vertexCount = 0;
 
             foreach (var line in layout.Lines)
@@ -487,15 +491,26 @@ namespace Prowl.Scribe
                     vertices.Add(new IFontRenderer.Vertex(new Vector3(glyphX + glyphW, glyphY + glyphH, 0), color, new Vector2(glyph.U1, glyph.V1)));
 
                     // Create quad indices
-                    indices.AddRange(new[] { vertexCount, vertexCount + 1, vertexCount + 2, vertexCount + 1, vertexCount + 3, vertexCount + 2 });
+                    indices.Add(vertexCount);
+                    indices.Add(vertexCount + 1);
+                    indices.Add(vertexCount + 2);
+                    indices.Add(vertexCount + 1);
+                    indices.Add(vertexCount + 3);
+                    indices.Add(vertexCount + 2);
                     vertexCount += 4;
                 }
             }
 
             if (vertices.Count > 0)
             {
+                #if  NET5_0_OR_GREATER
+                renderer.DrawQuads(atlasTexture, CollectionsMarshal.AsSpan(vertices), CollectionsMarshal.AsSpan(indices));            
+                #else
                 renderer.DrawQuads(atlasTexture, vertices.ToArray(), indices.ToArray());
+#endif
             }
+            
+            TextLayout.Return(layout);
         }
 
         #endregion

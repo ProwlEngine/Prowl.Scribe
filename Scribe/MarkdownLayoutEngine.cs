@@ -376,7 +376,7 @@ namespace Prowl.Scribe
                                       float? sizeOverride = null, float? lineHeightOverride = null, FontFile? fontOverride = null, float? widthOverride = null)
         {
             float wAvail = widthOverride ?? settings.Width;
-            var segment = new List<Inline>();
+            var segment = GetInlineList();
             foreach (var inline in p.Inlines)
             {
                 if (inline.Kind == InlineKind.Image)
@@ -399,11 +399,29 @@ namespace Prowl.Scribe
             return y + settings.ParagraphSpacing;
         }
 
+        private static Stack<List<Inline>> _inlineListPool = new Stack<List<Inline>>();
+
+        private static List<Inline> GetInlineList()
+        {
+            if (!_inlineListPool.TryPop(out List<Inline> list))
+            {
+                list = new List<Inline>();
+            }
+
+            return list;
+        }
+        
+        private static void ReturnInlineList(List<Inline> list)
+        {
+            list.Clear();
+            _inlineListPool.Push(list);
+        }
+        
         private static float LayoutTextSegment(List<Inline> inlines, float x, float y, MarkdownDisplayList dl, FontSystem fontSystem, MarkdownLayoutSettings settings,
                                         float? sizeOverride, float? lineHeightOverride, FontFile? fontOverride, float width)
         {
             var (text, decos, linkSpans, styles) = FlattenInlines(inlines);
-
+            ReturnInlineList(inlines);
             var baseFont = fontOverride ?? settings.ParagraphFont;
             var tls = TextLayoutSettings.Get();
             tls.PixelSize = sizeOverride ?? settings.BaseSize;
@@ -447,7 +465,9 @@ namespace Prowl.Scribe
                 return y + h;
             }
             // fallback to alt text
-            var alt = new List<Inline> { Inline.TextRun(img.Text) };
+            // var alt = new List<Inline> { Inline.TextRun(img.Text) };
+            var alt = GetInlineList();
+            alt.Add(Inline.TextRun(img.Text));
             return LayoutTextSegment(alt, x, y, dl, fontSystem, settings, sizeOverride, lineHeightOverride, fontOverride, widthAvail);
         }
 

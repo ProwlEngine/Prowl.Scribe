@@ -236,6 +236,25 @@ namespace Prowl.Scribe
         public readonly List<IDrawOp> Ops = new List<IDrawOp>();
         public readonly List<LinkInfo> Links = new List<LinkInfo>();
         public Vector2 Size; // overall width/height used
+
+        private static Stack<MarkdownDisplayList> _pool = new Stack<MarkdownDisplayList>();
+
+        public static MarkdownDisplayList Get()
+        {
+            if (!_pool.TryPop(out MarkdownDisplayList list))
+            {
+                list = new MarkdownDisplayList();
+            }
+            
+            return list;
+        }
+
+        public static void Return(MarkdownDisplayList list)
+        {
+            list.Ops.Clear();
+            list.Links.Clear();
+            _pool.Push(list);
+        }
     }
 
     #endregion
@@ -246,7 +265,7 @@ namespace Prowl.Scribe
 
         public static MarkdownDisplayList Layout(Document doc, FontSystem fontSystem, MarkdownLayoutSettings settings, IMarkdownImageProvider? imageProvider = null)
         {
-            var dl = new MarkdownDisplayList();
+            var dl = MarkdownDisplayList.Get();
             float cursorY = 0;
             float maxRight = 0;
 
@@ -345,6 +364,8 @@ namespace Prowl.Scribe
                     DrawImage.Return(img);
                 }
             }
+            
+            MarkdownDisplayList.Return(dl);
         }
 
         static IFontRenderer.Vertex[] _vertsImg = new IFontRenderer.Vertex[4];

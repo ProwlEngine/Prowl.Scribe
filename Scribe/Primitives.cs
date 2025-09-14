@@ -106,6 +106,10 @@ namespace Prowl.Scribe
         public float AdvanceWidth;
         public int CharIndex;
 
+        private static Stack<GlyphInstance> _pool = new Stack<GlyphInstance>();
+        private static int _created = 0;
+        private static int _returned = 0;
+        
         public GlyphInstance(AtlasGlyph glyph, Vector2 position, char character, float advanceWidth, int charIndex)
         {
             Glyph = glyph;
@@ -113,6 +117,37 @@ namespace Prowl.Scribe
             Character = character;
             AdvanceWidth = advanceWidth;
             CharIndex = charIndex;
+        }
+
+        public static GlyphInstance Get(AtlasGlyph glyph, Vector2 position, char character, float advanceWidth, int charIndex)
+        {
+            // Console.WriteLine($"Num of outstanding glyphs: {_pool.Count}");
+            if (!_pool.TryPop(out GlyphInstance instance))
+            {
+                instance = new GlyphInstance(glyph, position, character, advanceWidth, charIndex);
+                _created++;
+            }
+            
+            instance.Glyph = glyph;
+            instance.Position = position;
+            instance.Character = character;
+            instance.AdvanceWidth = advanceWidth;
+            instance.CharIndex = charIndex;
+
+            return instance;
+        }
+
+        public static void Return(GlyphInstance instance)
+        {
+            // Console.WriteLine($"Returning instance to the pool. Size: {_pool.Count + 1}");
+            _pool.Push(instance);
+            _returned++;
+        }
+
+        public static void ResetLayoutCount()
+        {
+            _returned = 0;
+            _created = 0;
         }
     }
 
@@ -124,7 +159,9 @@ namespace Prowl.Scribe
         public Vector2 Position; // relative to layout origin
         public int StartIndex; // character index in original string
         public int EndIndex; // character index in original string
-
+        public static Stack<Line> _pool = new Stack<Line>();
+        public static int _created = 0;
+        public static int _returned = 0;
         public Line(Vector2 position, int startIndex)
         {
             Glyphs = new List<GlyphInstance>();
@@ -133,6 +170,37 @@ namespace Prowl.Scribe
             Position = position;
             StartIndex = startIndex;
             EndIndex = startIndex;
+        }
+
+        public static Line Get(Vector2 position, int startIndex)
+        {
+            if (!_pool.TryPop(out Line line))
+            {
+                line = new Line(position, startIndex);
+                _created++;
+            }
+
+            line.Position = position;
+            line.StartIndex = startIndex;
+            line.EndIndex = startIndex;
+            return line;
+        }
+
+        public static void Return(Line line)
+        {
+            foreach (GlyphInstance instance in line.Glyphs)
+            {
+                GlyphInstance.Return(instance);
+            }
+            line.Glyphs.Clear();
+            _pool.Push(line);
+            _returned++;
+        }
+
+        public static void ResetCounters()
+        {
+            _returned = 0;
+            _created = 0;
         }
     }
 }

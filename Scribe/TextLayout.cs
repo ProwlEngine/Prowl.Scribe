@@ -10,13 +10,32 @@ namespace Prowl.Scribe
         public Vector2 Size { get; private set; }
         public TextLayoutSettings Settings { get; private set; }
         public string Text { get; private set; }
-        
-        private static int _createdLayouts = 0;
 
+        private static Stack<TextLayout> _pool = new Stack<TextLayout>();
+        
+        public static TextLayout Get()
+        {
+            if (_pool.TryPop(out TextLayout layout))
+            {
+                return layout;
+            }
+            
+            return new TextLayout();
+        }
+
+        public static void Return(TextLayout layout)
+        {
+            foreach (Line line in layout.Lines)
+            {
+                Line.Return(line);
+            }
+            
+            layout.Lines.Clear();
+            _pool.Push(layout);
+        }
         public TextLayout()
         {
             Lines = new List<Line>();
-            _createdLayouts++;
         }
 
         internal void UpdateLayout(string text, TextLayoutSettings settings, FontSystem fontSystem)
@@ -50,7 +69,7 @@ namespace Prowl.Scribe
         void EmitGlyph(AtlasGlyph glyph, FontSystem fontSystem, FontFile font, float pixelSize, char c, float offsetX, float offsetY, float advanceBase, ref float x, List<GlyphInstance> outList, int charIndex, ref int lastCodepointForKerning)
         {
             float a = GetAscender(fontSystem, font, pixelSize);
-            var gi = new GlyphInstance(glyph, new Vector2(x + offsetX, offsetY + a), c, advanceBase, charIndex);
+            var gi = GlyphInstance.Get(glyph, new Vector2(x + offsetX, offsetY + a), c, advanceBase, charIndex);
             outList.Add(gi);
             x += advanceBase;
             lastCodepointForKerning = c; // kerning only continues within the current word/run
@@ -63,7 +82,7 @@ namespace Prowl.Scribe
             int i = 0;
             bool hasTrailingNewline = false;
 
-            var line = new Line(new Vector2(0, currentY), 0);
+            var line = Line.Get(new Vector2(0, currentY), 0);
 
             // Hoist Settings & constants
             var text = Text;
@@ -93,7 +112,7 @@ namespace Prowl.Scribe
                     currentX = 0f;
                     currentY += lineHeight;
                     i++;
-                    line = new Line(new Vector2(0, currentY), i);
+                    line = Line.Get(new Vector2(0, currentY), i);
                     lastCodepointForKerning = 0;
                     hasTrailingNewline = true;
                     continue;
@@ -124,7 +143,7 @@ namespace Prowl.Scribe
                         FinalizeLine(ref line, currentY, lineHeight, s, currentX);
                         currentX = 0f;
                         currentY += lineHeight;
-                        line = new Line(new Vector2(0, currentY), i);
+                        line = Line.Get(new Vector2(0, currentY), i);
                     }
                     else
                     {
@@ -200,8 +219,8 @@ namespace Prowl.Scribe
                         FinalizeLine(ref line, currentY, lineHeight, wordStart, currentX);
                         currentX = 0f;
                         currentY += lineHeight;
-                        line = new Line(new Vector2(0, currentY), wordStart);
-                        lastCodepointForKerning = 0; // new line: no leading kerning
+                        line = Line.Get(new Vector2(0, currentY), wordStart);
+                        lastCodepointForKerning = 0; // Line.Get: no leading kerning
                     }
 
                     // If the word itself is too long for an empty line, split it (char-level)
@@ -313,7 +332,7 @@ namespace Prowl.Scribe
                     FinalizeLine(ref line, currentY, lineHeight, i, currentX);
                     currentX = 0f;
                     currentY += lineHeight;
-                    line = new Line(new Vector2(0, currentY), i);
+                    line = Line.Get(new Vector2(0, currentY), i);
                     lastKernCode = 0; // break kerning across lines
                 }
                 else if (wrapEnabled && line.Glyphs.Count == 0 && currentX + k + adv > maxWidth)
@@ -328,7 +347,7 @@ namespace Prowl.Scribe
 
                 // Emit glyph
                 float a = GetAscender(fontSystem, g.Font, pixelSize);
-                var gi = new GlyphInstance(g, new Vector2(currentX + g.Metrics.OffsetX, g.Metrics.OffsetY + a), c, adv, i);
+                var gi = GlyphInstance.Get(g, new Vector2(currentX + g.Metrics.OffsetX, g.Metrics.OffsetY + a), c, adv, i);
                 line.Glyphs.Add(gi);
                 currentX += adv;
                 lastKernCode = c;

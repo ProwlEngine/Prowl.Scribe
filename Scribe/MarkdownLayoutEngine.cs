@@ -247,6 +247,8 @@ namespace Prowl.Scribe
                     renderer.DrawQuads(img.Texture, _vertsImg, _idxImg);
                 }
             }
+            
+            GlyphInstance.ResetLayoutCount();
         }
 
         static IFontRenderer.Vertex[] _vertsImg = new IFontRenderer.Vertex[4];
@@ -507,6 +509,7 @@ namespace Prowl.Scribe
 
                     var tl = fontSystem.CreateLayout(text, tls);
                     minCol[c] = MathF.Max(minCol[c], tl.Size.X);
+                    TextLayout.Return(tl);
                 }
             }
 

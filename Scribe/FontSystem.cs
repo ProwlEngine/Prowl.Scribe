@@ -389,14 +389,14 @@ namespace Prowl.Scribe
         {
             if (string.IsNullOrEmpty(text))
             {
-                var empty = GetTextLayoutFromPool();
+                var empty = TextLayout.Get();
                 empty.UpdateLayout(text, settings, this);
                 return empty;
             }
 
             if (!CacheLayouts)
             {
-                var direct = GetTextLayoutFromPool();
+                var direct = TextLayout.Get();
                 direct.UpdateLayout(text, settings, this);
                 return direct;
             }
@@ -406,7 +406,7 @@ namespace Prowl.Scribe
             if (layoutCache.TryGetValue(key, out var cached))
                 return cached;
 
-            var layout = GetTextLayoutFromPool();
+            var layout = TextLayout.Get();
             layout.UpdateLayout(text, settings, this);
 
             layoutCache.Add(key, layout);
@@ -457,18 +457,6 @@ namespace Prowl.Scribe
             DrawLayout(layout, position, color);
         }
 
-        private Stack<TextLayout> _textLayouts = new Stack<TextLayout>();
-
-        private TextLayout GetTextLayoutFromPool()
-        {
-            if (_textLayouts.TryPop(out TextLayout layout))
-            {
-                return layout;
-            }
-
-            return new TextLayout();
-        }
-        
         List<IFontRenderer.Vertex> _vertices = new List<IFontRenderer.Vertex>();
         List<int> _indices = new List<int>();
         public void DrawLayout(TextLayout layout, Vector2 position, FontColor color)
@@ -522,7 +510,7 @@ namespace Prowl.Scribe
 #endif
             }
             
-            _textLayouts.Push(layout);
+            TextLayout.Return(layout);
         }
 
         #endregion

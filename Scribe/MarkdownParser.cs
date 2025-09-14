@@ -212,9 +212,37 @@ namespace Prowl.Scribe
 
     public static class Markdown
     {
+        private static Dictionary<ulong, Document> _documentCache = new Dictionary<ulong, Document>();
         // Entry point
+
+
+        public static void ClearDocumentCache()
+        {
+            _documentCache.Clear();
+        }
+        private static ulong ComputeFNV1aHash(string input)
+        {
+            const ulong FNVOffsetBasis = 14695981039346656037UL;
+            const ulong FNVPrime = 1099511628211UL;
+
+            ulong hash = FNVOffsetBasis;
+            foreach (byte b in System.Text.Encoding.UTF8.GetBytes(input))
+            {
+                hash ^= b;
+                hash *= FNVPrime;
+            }
+            return hash;
+        }
+        
         public static Document Parse(string input)
         {
+            ulong hash = ComputeFNV1aHash(input);
+            
+            if (_documentCache.TryGetValue(hash, out Document document))
+            {
+                return document;
+            }
+            
             var text = Normalize(input);
             var pos = 0;
             var blocks = new List<Block>();
@@ -234,7 +262,11 @@ namespace Prowl.Scribe
                 // Paragraph (until blank line or next block)
                 blocks.Add(Block.From(ParseParagraph(text, ref pos)));
             }
-            return new Document(blocks);
+            
+            document = new Document(blocks);
+            
+            _documentCache.Add(hash, document);
+            return document;
         }
 
         #region Block helpers

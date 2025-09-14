@@ -283,6 +283,7 @@ namespace Prowl.Scribe
             }
 
             dl.Size = new Vector2(settings.Width, cursorY);
+            
             return dl;
         }
         

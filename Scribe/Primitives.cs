@@ -160,8 +160,6 @@ namespace Prowl.Scribe
         public int StartIndex; // character index in original string
         public int EndIndex; // character index in original string
         public static Stack<Line> _pool = new Stack<Line>();
-        public static int _created = 0;
-        public static int _returned = 0;
         public Line(Vector2 position, int startIndex)
         {
             Glyphs = new List<GlyphInstance>();
@@ -177,7 +175,6 @@ namespace Prowl.Scribe
             if (!_pool.TryPop(out Line line))
             {
                 line = new Line(position, startIndex);
-                _created++;
             }
 
             line.Position = position;
@@ -194,13 +191,6 @@ namespace Prowl.Scribe
             }
             line.Glyphs.Clear();
             _pool.Push(line);
-            _returned++;
-        }
-
-        public static void ResetCounters()
-        {
-            _returned = 0;
-            _created = 0;
         }
     }
 }

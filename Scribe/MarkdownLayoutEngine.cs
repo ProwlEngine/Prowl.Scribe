@@ -10,6 +10,7 @@ using System;
 using System.Buffers;
 using System.Collections.Generic;
 using System.Linq;
+using System.Net.Mime;
 using System.Numerics;
 using System.Runtime.InteropServices;
 using System.Text;
@@ -46,18 +47,103 @@ namespace Prowl.Scribe
         public FontColor Color;
         public List<DecorationSpan> Decorations; // optional
         public List<IntRange> LinkRanges;
+
+        public static Stack<DrawText> _pool = new Stack<DrawText>();
+        public static int _created = 0;
+        public static int _returned = 0;
+        
+        public void AddLinkRange(IntRange range)
+        {
+            LinkRanges.Add(range);
+        }
+
+        public void AddDecoration(DecorationSpan deco)
+        {
+            Decorations.Add(deco);
+        }
+        
+        public static DrawText Get(TextLayout layout, Vector2 position, FontColor color, List<DecorationSpan> decorations = null)
+        {
+            if (!_pool.TryPop(out DrawText text))
+            {
+                text = new DrawText();
+                _created++;
+            }
+
+            text.Layout = layout;
+            text.Pos = position;
+            text.Color = color;
+
+            if (text.Decorations == null) text.Decorations = new List<DecorationSpan>();
+            text.Decorations.Clear();
+            if (text.LinkRanges == null) text.LinkRanges = new List<IntRange>();
+            text.LinkRanges.Clear();
+            
+            return text;
+        }
+
+        public static void Return(DrawText text)
+        {
+            _pool.Push(text);
+            _returned++;
+        }
+        
+        public static void ResetCounters()
+        {
+            _returned = 0;
+            _created = 0;
+        }
     }
 
     public struct DrawQuad : IDrawOp
     {
         public RectangleF Rect;
         public FontColor Color;
+        public static Stack<DrawQuad> _pool = new Stack<DrawQuad>();
+        
+        public static DrawQuad Get(RectangleF rectangle, FontColor color)
+        {
+            if (!_pool.TryPop(out DrawQuad quad))
+            {
+                quad = new DrawQuad();
+            }
+
+            quad.Rect = rectangle;
+            quad.Color = color;
+            
+            return quad;
+        }
+
+        public static void Return(DrawQuad text)
+        {
+            _pool.Push(text);
+        }
     }
 
     public struct DrawImage : IDrawOp
     {
         public RectangleF Rect;
         public object Texture;
+        
+        public static Stack<DrawImage> _pool = new Stack<DrawImage>();
+        
+        public static DrawImage Get(RectangleF rectangle, object texture)
+        {
+            if (!_pool.TryPop(out DrawImage quad))
+            {
+                quad = new DrawImage();
+            }
+
+            quad.Rect = rectangle;
+            quad.Texture = texture;
+            
+            return quad;
+        }
+
+        public static void Return(DrawImage text)
+        {
+            _pool.Push(text);
+        }
     }
 
     public struct IntRange { public int Start, End; public IntRange(int s, int e) { Start = s; End = e; } }
@@ -199,7 +285,7 @@ namespace Prowl.Scribe
             dl.Size = new Vector2(settings.Width, cursorY);
             return dl;
         }
-
+        
         public static void Render(MarkdownDisplayList dl, FontSystem fontSystem, IFontRenderer renderer, Vector2 position, MarkdownLayoutSettings settings)
         {
             if (dl == null || dl.Ops.Count == 0) return;
@@ -215,6 +301,7 @@ namespace Prowl.Scribe
                 {
                     var offsetRect = new RectangleF(q.Rect.X + position.X, q.Rect.Y + position.Y, q.Rect.Width, q.Rect.Height);
                     AddQuad(ref verts, ref idx, ref vbase, offsetRect, q.Color);
+                    DrawQuad.Return(q);
                 }
             }
 
@@ -234,6 +321,8 @@ namespace Prowl.Scribe
                         DrawLinkOverprint(t, position, fontSystem, renderer, settings);
                     if (t.Decorations != null && t.Decorations.Count > 0)
                         DrawDecorations(t, position, fontSystem, renderer, settings);
+                    
+                    DrawText.Return(t);
                 }
                 else if (op is DrawImage img)
                 {
@@ -245,10 +334,10 @@ namespace Prowl.Scribe
                     _vertsImg[2] = new IFontRenderer.Vertex(new Vector3(offsetX, offsetY + r.Height, 0), FontColor.White, new Vector2(0, 1));
                     _vertsImg[3] = new IFontRenderer.Vertex(new Vector3(offsetX + r.Width, offsetY + r.Height, 0), FontColor.White, new Vector2(1, 1));
                     renderer.DrawQuads(img.Texture, _vertsImg, _idxImg);
+                    
+                    DrawImage.Return(img);
                 }
             }
-            
-            GlyphInstance.ResetLayoutCount();
         }
 
         static IFontRenderer.Vertex[] _vertsImg = new IFontRenderer.Vertex[4];
@@ -321,10 +410,13 @@ namespace Prowl.Scribe
             // tls.FontSelector = (charIndex) => ResolveFontForIndex(charIndex, fontSystem, baseFont, styles, settings);
 
             var tl = fontSystem.CreateLayout(text, tls);
-            var linkRanges = new List<IntRange>();
-            foreach (var ls in linkSpans) linkRanges.Add(ls.Range);
 
-            var op = new DrawText { Layout = tl, Pos = new Vector2(x, y), Color = settings.ColorText, Decorations = decos, LinkRanges = linkRanges };
+            var op = DrawText.Get(tl, new Vector2(x, y), settings.ColorText, decos);
+            foreach (var ls in linkSpans)
+            {
+                op.AddLinkRange(ls.Range);
+            }
+            
             dl.Ops.Add(op);
             if (linkSpans.Count > 0)
                 AddLinkHitBoxes(dl, op, linkSpans);
@@ -344,7 +436,7 @@ namespace Prowl.Scribe
                     w = widthAvail;
                     h *= scale;
                 }
-                dl.Ops.Add(new DrawImage { Texture = tex, Rect = new RectangleF(x, y, w, h) });
+                dl.Ops.Add(DrawImage.Get(new RectangleF(x, y, w, h), tex));
                 return y + h;
             }
             // fallback to alt text
@@ -375,10 +467,7 @@ namespace Prowl.Scribe
             float h = yAfter - y - settings.ParagraphSpacing;
 
             // prepend left bar quad (ensure it renders under text by ordering)
-            dl.Ops.Insert(beforeOpsCount, new DrawQuad {
-                Rect = new RectangleF(x, y, settings.BlockQuoteBarWidth, h),
-                Color = settings.ColorQuoteBar
-            });
+            dl.Ops.Insert(beforeOpsCount, DrawQuad.Get(new RectangleF(x, y, settings.BlockQuoteBarWidth, h), settings.ColorQuoteBar));
             return yAfter;
         }
 
@@ -399,7 +488,7 @@ namespace Prowl.Scribe
                     float r = settings.BaseSize * 0.2f;
                     float bx = x + depth * settings.ListIndent + (bulletBox - 2 * r) * 0.5f;
                     float by = lineTop + settings.BaseSize * 0.35f; // approximate baseline offset
-                    dl.Ops.Add(new DrawQuad { Rect = new RectangleF(bx, by, 2 * r, 2 * r), Color = settings.ColorText });
+                    dl.Ops.Add(DrawQuad.Get(new RectangleF(bx, by, 2 * r, 2 * r), settings.ColorText));
                 }
                 else
                 {
@@ -412,7 +501,7 @@ namespace Prowl.Scribe
                     tlsNum.Alignment = TextAlignment.Right;
                     tlsNum.Font = settings.ParagraphFont;
                     var tlNum = fontSystem.CreateLayout($"{index}.", tlsNum);
-                    dl.Ops.Add(new DrawText { Layout = tlNum, Pos = new Vector2(x + depth * settings.ListIndent, lineTop), Color = settings.ColorText });
+                    dl.Ops.Add(DrawText.Get(tlNum, new Vector2(x + depth * settings.ListIndent, lineTop), settings.ColorText));
                 }
 
                 // lead line
@@ -445,7 +534,7 @@ namespace Prowl.Scribe
         private static float LayoutHr(float x, float y, MarkdownDisplayList dl, MarkdownLayoutSettings settings)
         {
             y += settings.HrSpacing;
-            dl.Ops.Add(new DrawQuad { Rect = new RectangleF(x, y, settings.Width, settings.HrThickness), Color = settings.ColorRule });
+            dl.Ops.Add(DrawQuad.Get(new RectangleF(x, y, settings.Width, settings.HrThickness),settings.ColorRule));
             y += settings.HrThickness + settings.HrSpacing;
             return y;
         }
@@ -467,8 +556,8 @@ namespace Prowl.Scribe
 
             var tl = fontSystem.CreateLayout(cb.Code.Replace("\r\n", "\n"), tls);
             float h = tl.Size.Y + 2 * pad;
-            dl.Ops.Add(new DrawQuad { Rect = new RectangleF(x, y, wAvail, h), Color = settings.ColorCodeBg });
-            dl.Ops.Add(new DrawText { Layout = tl, Pos = new Vector2(innerX, y + pad), Color = settings.ColorText });
+            dl.Ops.Add(DrawQuad.Get(new RectangleF(x, y, wAvail, h),settings.ColorCodeBg));
+            dl.Ops.Add(DrawText.Get(tl, new Vector2(innerX, y + pad), settings.ColorText));
             return y + h + settings.ParagraphSpacing;
         }
 
@@ -561,10 +650,10 @@ namespace Prowl.Scribe
                     // tls.FontSelector = (charIndex) => ResolveFontForIndex(charIndex, fontSystem, settings.ParagraphFont, styles, settings);
 
                     var tl = fontSystem.CreateLayout(text, tls);
-
-                    var linkRanges = new List<IntRange>();
-                    foreach (var ls in linkSpans) linkRanges.Add(ls.Range);
-                    var op = new DrawText { Layout = tl, Pos = new Vector2(cx, rowY), Color = settings.ColorText, Decorations = decos, LinkRanges = linkRanges };
+                    
+                    var op = DrawText.Get(tl, new Vector2(cx, rowY), settings.ColorText, decos);
+                    foreach (var ls in linkSpans) op.AddLinkRange(ls.Range);
+                    
                     dl.Ops.Add(op);
                     if (linkSpans.Count > 0) AddLinkHitBoxes(dl, op, linkSpans);
                     rowHeight = MathF.Max(rowHeight, tl.Size.Y);
@@ -585,20 +674,14 @@ namespace Prowl.Scribe
                 float yCursor = tableTop;
                 for (int r = 0; r <= t.Rows.Count; r++)
                 {
-                    dl.Ops.Insert(0, new DrawQuad {
-                        Rect = new RectangleF(x, yCursor - th * 0.5f, wAvail, th),
-                        Color = settings.ColorRule
-                    });
+                    dl.Ops.Insert(0, DrawQuad.Get(new RectangleF(x, yCursor - th * 0.5f, wAvail, th), settings.ColorRule));
                     if (r < t.Rows.Count) yCursor += perRowHeights[r];
                 }
             }
             // Vertical lines: at each column boundary
             for (int c = 0; c < colX.Length; c++)
             {
-                dl.Ops.Insert(0, new DrawQuad {
-                    Rect = new RectangleF(colX[c] - th * 0.5f, tableTop, th, tableBottom - tableTop),
-                    Color = settings.ColorRule
-                });
+                dl.Ops.Insert(0, DrawQuad.Get(new RectangleF(colX[c] - th * 0.5f, tableTop, th, tableBottom - tableTop), settings.ColorRule));
             }
             
             ArrayPool<float>.Shared.Return(minCol);

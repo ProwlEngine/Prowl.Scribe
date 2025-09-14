@@ -404,7 +404,7 @@ namespace Prowl.Scribe
             var (text, decos, linkSpans, styles) = FlattenInlines(inlines);
 
             var baseFont = fontOverride ?? settings.ParagraphFont;
-            var tls = TextLayoutSettings.Default;
+            var tls = TextLayoutSettings.Get();
             tls.PixelSize = sizeOverride ?? settings.BaseSize;
             tls.LineHeight = lineHeightOverride ?? settings.LineHeight;
             tls.WrapMode = TextWrapMode.Wrap;
@@ -499,7 +499,7 @@ namespace Prowl.Scribe
                 else
                 {
                     // right-aligned number inside bulletBox
-                    var tlsNum = TextLayoutSettings.Default;
+                    var tlsNum = TextLayoutSettings.Get();
                     tlsNum.PixelSize = settings.BaseSize;
                     tlsNum.LineHeight = settings.LineHeight;
                     tlsNum.WrapMode = TextWrapMode.NoWrap;
@@ -552,7 +552,7 @@ namespace Prowl.Scribe
             float innerX = x + pad;
             float innerW = MathF.Max(0, wAvail - 2 * pad);
 
-            var tls = TextLayoutSettings.Default;
+            var tls = TextLayoutSettings.Get();
             tls.PixelSize = settings.BaseSize * 0.95f;
             tls.LineHeight = 1.25f;
             tls.WrapMode = TextWrapMode.Wrap;
@@ -591,7 +591,7 @@ namespace Prowl.Scribe
                 {
                     var cell = row.Cells[c]; 
                     var (text, _, _, styles) = FlattenInlines(cell.Inlines);
-                    var tls = TextLayoutSettings.Default;
+                    var tls = TextLayoutSettings.Get();
                     tls.PixelSize = settings.BaseSize;
                     tls.LineHeight = settings.LineHeight;
                     tls.WrapMode = TextWrapMode.NoWrap;
@@ -644,7 +644,7 @@ namespace Prowl.Scribe
                     var cell = row.Cells[c];
                     var (text, decos, linkSpans, styles) = FlattenInlines(cell.Inlines);
 
-                    var tls = TextLayoutSettings.Default;
+                    var tls = TextLayoutSettings.Get();
                     tls.PixelSize = settings.BaseSize;
                     tls.LineHeight = settings.LineHeight;
                     tls.WrapMode = TextWrapMode.Wrap;

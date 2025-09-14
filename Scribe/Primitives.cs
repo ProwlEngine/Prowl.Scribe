@@ -82,8 +82,8 @@ namespace Prowl.Scribe
         public List<StyleSpan> StyleSpans;
         public MarkdownLayoutSettings LayoutSettings;
 
-        public Func<int, FontFile> FontSelector; // optional: index in the full string -> font
-
+        private static Stack<TextLayoutSettings> _pool = new Stack<TextLayoutSettings>();
+        
         public static TextLayoutSettings Default => new TextLayoutSettings {
             PixelSize = 16,
             Font = null,
@@ -96,6 +96,39 @@ namespace Prowl.Scribe
             MaxWidth = 0,
             StyleSpans = new List<StyleSpan>()
         };
+
+        private void SetDefaultValues()
+        {
+            PixelSize = 16;
+            Font = null;
+            LetterSpacing = 0;
+            WordSpacing = 0;
+            LineHeight = 1.0f;
+            TabSize = 4;
+            WrapMode = TextWrapMode.NoWrap;
+            Alignment = TextAlignment.Left;
+            MaxWidth = 0;
+            
+            if (StyleSpans == null) StyleSpans = new List<StyleSpan>();
+            StyleSpans.Clear();
+        }
+        
+        public static TextLayoutSettings Get()
+        {
+            if (!_pool.TryPop(out TextLayoutSettings settings))
+            {
+                settings = new TextLayoutSettings();
+            }
+            
+            settings.SetDefaultValues();
+            return settings;
+        }
+
+        public static void Return(TextLayoutSettings settings)
+        {
+            settings.StyleSpans.Clear();
+            _pool.Push(settings);
+        }
     }
 
     public struct GlyphInstance
@@ -107,8 +140,6 @@ namespace Prowl.Scribe
         public int CharIndex;
 
         private static Stack<GlyphInstance> _pool = new Stack<GlyphInstance>();
-        private static int _created = 0;
-        private static int _returned = 0;
         
         public GlyphInstance(AtlasGlyph glyph, Vector2 position, char character, float advanceWidth, int charIndex)
         {
@@ -121,11 +152,9 @@ namespace Prowl.Scribe
 
         public static GlyphInstance Get(AtlasGlyph glyph, Vector2 position, char character, float advanceWidth, int charIndex)
         {
-            // Console.WriteLine($"Num of outstanding glyphs: {_pool.Count}");
             if (!_pool.TryPop(out GlyphInstance instance))
             {
                 instance = new GlyphInstance(glyph, position, character, advanceWidth, charIndex);
-                _created++;
             }
             
             instance.Glyph = glyph;
@@ -139,15 +168,7 @@ namespace Prowl.Scribe
 
         public static void Return(GlyphInstance instance)
         {
-            // Console.WriteLine($"Returning instance to the pool. Size: {_pool.Count + 1}");
             _pool.Push(instance);
-            _returned++;
-        }
-
-        public static void ResetLayoutCount()
-        {
-            _returned = 0;
-            _created = 0;
         }
     }
 

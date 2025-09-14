@@ -423,7 +423,7 @@ namespace Prowl.Scribe
 
         public Vector2 MeasureText(string text, float pixelSize, FontFile font, float letterSpacing = 0)
         {
-            var settings = TextLayoutSettings.Default;
+            var settings = TextLayoutSettings.Get();
             settings.PixelSize = pixelSize;
             settings.Font = font;
             settings.LetterSpacing = letterSpacing;
@@ -440,7 +440,7 @@ namespace Prowl.Scribe
 
         public void DrawText(string text, Vector2 position, FontColor color, float pixelSize, FontFile font, float letterSpacing = 0)
         {
-            var settings = TextLayoutSettings.Default;
+            var settings = TextLayoutSettings.Get();
             settings.PixelSize = pixelSize;
             settings.Font = font;
             settings.LetterSpacing = letterSpacing;

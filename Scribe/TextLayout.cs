@@ -31,6 +31,9 @@ namespace Prowl.Scribe
             }
             
             layout.Lines.Clear();
+            
+            TextLayoutSettings.Return(layout.Settings);
+            
             _pool.Push(layout);
         }
         public TextLayout()

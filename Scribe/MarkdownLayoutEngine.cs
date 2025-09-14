@@ -465,7 +465,6 @@ namespace Prowl.Scribe
                 return y + h;
             }
             // fallback to alt text
-            // var alt = new List<Inline> { Inline.TextRun(img.Text) };
             var alt = GetInlineList();
             alt.Add(Inline.TextRun(img.Text));
             return LayoutTextSegment(alt, x, y, dl, fontSystem, settings, sizeOverride, lineHeightOverride, fontOverride, widthAvail);

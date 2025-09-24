@@ -29,6 +29,12 @@ namespace Prowl.Scribe
         private int numGlyphs;
         private Buf subrs = null;
 
+        // Font hinting support
+        private Internal.Interpreter? interpreter = null;
+        private Internal.FUnit[]? controlValueTable = null;
+        private byte[]? prepProgram = null;
+        private int maxp = 0;
+
         private readonly Dictionary<int, int> unicodeMapCache = new Dictionary<int, int>();
         private readonly Dictionary<(int, int), int> kerningMapCache = new Dictionary<(int, int), int>();
 
@@ -190,6 +196,11 @@ namespace Prowl.Scribe
 
             FamilyName = fam.ToLowerInvariant();
             Style = ParseStyle(sub);
+
+            // Initialize font hinting if this is a TrueType font (has glyf table)
+            if (this.glyf != 0) {
+                InitializeHinting(ptr, (uint)fontstart);
+            }
 
             return 1;
         }
@@ -357,8 +368,13 @@ namespace Prowl.Scribe
 
 		public int GetGlyphShape(int glyph_index, out GlyphVertex[] pvertices)
 		{
+			return GetGlyphShape(glyph_index, out pvertices, 1.0f);
+		}
+
+		public int GetGlyphShape(int glyph_index, out GlyphVertex[] pvertices, float pixelSize)
+		{
 			if (this.cff.size == 0)
-				return GetGlyphShapeTT(glyph_index, out pvertices);
+				return GetGlyphShapeTT(glyph_index, out pvertices, pixelSize);
 			return GetGlyphShapeT2(glyph_index, out pvertices);
 		}
 
@@ -439,7 +455,7 @@ namespace Prowl.Scribe
 			}
         }
 
-        public FakePtr<byte> GetGlyphBitmap(float scale_x, float scale_y, int glyph, ref int width, ref int height, ref int xoff, ref int yoff)
+        public FakePtr<byte> GetGlyphBitmap(float pixelSize, float scale_x, float scale_y, int glyph, ref int width, ref int height, ref int xoff, ref int yoff)
 		{
 			var ix0 = 0;
 			var iy0 = 0;
@@ -447,7 +463,7 @@ namespace Prowl.Scribe
 			var iy1 = 0;
 			var gbm = new Bitmap();
 			GlyphVertex[] vertices;
-			var num_verts = GetGlyphShape(glyph, out vertices);
+			var num_verts = GetGlyphShape(glyph, out vertices, pixelSize);
 			if (scale_x == 0)
 				scale_x = scale_y;
 			if (scale_y == 0)
@@ -474,13 +490,13 @@ namespace Prowl.Scribe
 			return gbm.pixels;
 		}
 
-        public void MakeGlyphBitmap(FakePtr<byte> output, int out_w, int out_h, int out_stride, float scale_x, float scale_y, int glyph)
+        public void MakeGlyphBitmap(FakePtr<byte> output, int out_w, int out_h, int out_stride, float pixelSize, float scale_x, float scale_y, int glyph)
 		{
 			var ix0 = 0;
 			var iy0 = 0;
 			var ix1 = 0;
 			var iy1 = 0;
-			var num_verts = GetGlyphShape(glyph, out GlyphVertex[] vertices);
+			var num_verts = GetGlyphShape(glyph, out GlyphVertex[] vertices, pixelSize);
 			var gbm = new Bitmap();
 			GetGlyphBitmapBoundingBox(glyph, scale_x, scale_y, ref ix0, ref iy0, ref ix1, ref iy1);
 			gbm.pixels = output;
@@ -491,6 +507,14 @@ namespace Prowl.Scribe
 			if (gbm.w != 0 && gbm.h != 0)
 				gbm.Rasterize(0.35f, vertices, num_verts, scale_x, scale_y, ix0, iy0, 1);
 		}
+
+        public int UnitsPerEm()
+        {
+            if (this.head == 0) return 2048; // Default fallback
+
+            // Units per em is stored at offset 18 in the head table
+            return ttUSHORT(this.data + this.head + 18);
+        }
 
 		public FakePtr<byte> GetFontNameString(ref int length, int platformID, int encodingID, int languageID, int nameID)
 		{
@@ -514,7 +538,128 @@ namespace Prowl.Scribe
 			return FakePtr<byte>.Null;
 		}
 
+        public void SetupHinting(float pixelSize)
+        {
+            if (interpreter == null || controlValueTable == null) return;
+
+            // Calculate scale from font units to pixels (following SharpFont's ComputeScale)
+            var adjustedPixelSize = pixelSize;
+
+            // Check if font requires integer PPEMs (like SharpFont does)
+            if (ShouldUseIntegerPpems()) {
+                adjustedPixelSize = (float)Math.Round(pixelSize);
+            }
+
+            var unitsPerEm = UnitsPerEm();
+            var scale = adjustedPixelSize / unitsPerEm;
+
+            // Set up CVT table with scaling - this also executes PREP program
+            interpreter.SetControlValueTable(controlValueTable, scale, adjustedPixelSize, prepProgram);
+        }
+
+        private bool ShouldUseIntegerPpems()
+        {
+            // Check the head table's flags for IntegerPpem flag (bit 2)
+            var headTable = (int)FindTable(this.data, (uint)this.fontstart, "head");
+            if (headTable == 0) return false;
+
+            var flags = ttUSHORT(this.data + headTable + 16); // flags are at offset 16
+            return (flags & 0x0004) != 0; // IntegerPpem = bit 2
+        }
+
         #region Private Methods
+
+        private void InitializeHinting(FakePtr<byte> data, uint fontstart)
+        {
+            try {
+                // Read maxp table for hinting limits
+                var maxpTable = (int)FindTable(data, fontstart, "maxp");
+                if (maxpTable == 0) return;
+
+                // Read maxp values for interpreter initialization (correct offsets)
+                var maxTwilightPoints = ttUSHORT(data + maxpTable + 16);
+                var maxStorage = ttUSHORT(data + maxpTable + 18);
+                var maxFunctionDefs = ttUSHORT(data + maxpTable + 20);
+                var maxInstructionDefs = ttUSHORT(data + maxpTable + 22);
+                var maxStack = ttUSHORT(data + maxpTable + 24);
+
+                // Apply sanity checks
+                const int MaxTwilightPoints = 16384;
+                const int MaxStorageLocations = 16384;
+                const int MaxFunctionDefs = 4096;
+                const int MaxStackSize = 16384;
+
+                if (maxTwilightPoints > MaxTwilightPoints || maxStorage > MaxStorageLocations ||
+                    maxFunctionDefs > MaxFunctionDefs || maxInstructionDefs > MaxFunctionDefs ||
+                    maxStack > MaxStackSize) {
+                    // Font has limits that are too large, disable hinting
+                    return;
+                }
+
+                // Initialize interpreter with actual font values, or reasonable defaults if 0
+                interpreter = new Internal.Interpreter(
+                    maxStack > 0 ? maxStack : 64,
+                    maxStorage > 0 ? maxStorage : 64,
+                    maxFunctionDefs > 0 ? maxFunctionDefs : 64,
+                    maxInstructionDefs > 0 ? maxInstructionDefs : 64,
+                    maxTwilightPoints > 0 ? maxTwilightPoints : 64
+                );
+
+                // Read control value table (cvt) if present
+                var cvtTable = (int)FindTable(data, fontstart, "cvt ");
+                if (cvtTable != 0) {
+                    var cvtLength = GetTableLength(data, fontstart, "cvt ") / 2; // 2 bytes per FUnit
+                    controlValueTable = new Internal.FUnit[cvtLength];
+                    for (int i = 0; i < cvtLength; i++) {
+                        controlValueTable[i] = (Internal.FUnit)ttSHORT(data + cvtTable + i * 2);
+                    }
+                }
+
+                // Read prep (control value program) if present
+                var prepTable = (int)FindTable(data, fontstart, "prep");
+                if (prepTable != 0) {
+                    var prepLength = GetTableLength(data, fontstart, "prep");
+                    prepProgram = new byte[prepLength];
+                    for (int i = 0; i < prepLength; i++) {
+                        prepProgram[i] = data[prepTable + i];
+                    }
+                }
+
+                // Read fpgm (font program) and initialize function definitions
+                var fpgmTable = (int)FindTable(data, fontstart, "fpgm");
+                if (fpgmTable != 0) {
+                    var fpgmLength = GetTableLength(data, fontstart, "fpgm");
+                    var fpgmProgram = new byte[fpgmLength];
+                    for (int i = 0; i < fpgmLength; i++) {
+                        fpgmProgram[i] = data[fpgmTable + i];
+                    }
+                    interpreter.InitializeFunctionDefs(fpgmProgram);
+                }
+            }
+            catch (Exception e)
+            {
+                // If hinting initialization fails, disable it
+                interpreter = null;
+                controlValueTable = null;
+                prepProgram = null;
+
+                Console.WriteLine($"Font hinting initialization failed: {e.ToString()}");
+            }
+        }
+
+        private uint GetTableLength(FakePtr<byte> data, uint fontstart, string tag)
+        {
+            int num_tables = ttUSHORT(data + fontstart + 4);
+            var tabledir = fontstart + 12;
+            for (int i = 0; i < num_tables; ++i)
+            {
+                var loc = (uint)(tabledir + 16 * i);
+                if ((data + loc + 0)[0] == tag[0] && (data + loc + 0)[1] == tag[1] &&
+                    (data + loc + 0)[2] == tag[2] && (data + loc + 0)[3] == tag[3])
+                    return ttULONG(data + loc + 12); // length field
+            }
+            return 0;
+        }
 
         private uint FindTable(FakePtr<byte> data, uint fontstart, string tag)
         {
@@ -594,7 +739,7 @@ namespace Prowl.Scribe
             return g1 == g2 ? -1 : g1;
         }
 
-        private int GetGlyphShapeTT(int glyph_index, out GlyphVertex[] pvertices)
+        private int GetGlyphShapeTT(int glyph_index, out GlyphVertex[] pvertices, float pixelSize)
         {
             short numberOfContours = 0;
             FakePtr<byte> endPtsOfContours;
@@ -602,10 +747,30 @@ namespace Prowl.Scribe
             GlyphVertex[] vertices = null;
             var num_vertices = 0;
             var g = GetGlyfOffset(glyph_index);
+            byte[] instructions = null; // Extract instructions for all glyph types
             pvertices = null;
             if (g < 0)
                 return 0;
             numberOfContours = ttSHORT(data + g);
+
+            // Extract glyph instructions for hinting (applies to both simple and composite glyphs)
+            if (numberOfContours > 0) {
+                var ins = ttUSHORT(data + g + 10 + numberOfContours * 2);
+                if (ins > 0) {
+                    instructions = new byte[ins];
+                    var instructionStart = data + g + 10 + numberOfContours * 2 + 2;
+                    for (int k = 0; k < ins; k++) {
+                        instructions[k] = instructionStart[k];
+                    }
+                }
+            }
+
+            // Extract instructions and apply hinting to raw points if available
+            Internal.PointF[] hintedPoints = null;
+            if (interpreter != null && pixelSize > 1.0f && instructions != null && instructions.Length > 0 && numberOfContours > 0) {
+                hintedPoints = GetHintedRawPoints(glyph_index, numberOfContours, instructions, pixelSize);
+            }
+
             if (numberOfContours > 0)
             {
                 var flags = (byte)0;
@@ -630,6 +795,7 @@ namespace Prowl.Scribe
                 FakePtr<byte> points;
                 endPtsOfContours = data + g + 10;
                 ins = ttUSHORT(data + g + 10 + numberOfContours * 2);
+
                 points = data + g + 10 + numberOfContours * 2 + 2 + ins;
                 n = 1 + ttUSHORT(endPtsOfContours + numberOfContours * 2 - 2);
                 m = n + 2 * numberOfContours;
@@ -653,46 +819,56 @@ namespace Prowl.Scribe
                     vertices[off + i].type = flags;
                 }
 
-                x = 0;
-                for (i = 0; i < n; ++i)
-                {
-                    flags = vertices[off + i].type;
-                    if ((flags & 2) != 0)
-                    {
-                        var dx = (short)points.GetAndIncrease();
-                        x += (flags & 16) != 0 ? dx : -dx;
+                // Use hinted coordinates if available, otherwise read raw coordinates
+                if (hintedPoints != null && hintedPoints.Length >= n + 4) { // +4 for phantom points
+                    // Use hinted coordinates (already in font units)
+                    for (i = 0; i < n; ++i) {
+                        vertices[off + i].x = (short)hintedPoints[i].P.X;
+                        vertices[off + i].y = (short)hintedPoints[i].P.Y;
                     }
-                    else
+                } else {
+                    // Use original coordinate reading logic
+                    x = 0;
+                    for (i = 0; i < n; ++i)
                     {
-                        if ((flags & 16) == 0)
+                        flags = vertices[off + i].type;
+                        if ((flags & 2) != 0)
                         {
-                            x = x + (short)(points[0] * 256 + points[1]);
-                            points += 2;
+                            var dx = (short)points.GetAndIncrease();
+                            x += (flags & 16) != 0 ? dx : -dx;
                         }
-                    }
-
-                    vertices[off + i].x = (short)x;
-                }
-
-                y = 0;
-                for (i = 0; i < n; ++i)
-                {
-                    flags = vertices[off + i].type;
-                    if ((flags & 4) != 0)
-                    {
-                        var dy = (short)points.GetAndIncrease();
-                        y += (flags & 32) != 0 ? dy : -dy;
-                    }
-                    else
-                    {
-                        if ((flags & 32) == 0)
+                        else
                         {
-                            y = y + (short)(points[0] * 256 + points[1]);
-                            points += 2;
+                            if ((flags & 16) == 0)
+                            {
+                                x = x + (short)(points[0] * 256 + points[1]);
+                                points += 2;
+                            }
                         }
+
+                        vertices[off + i].x = (short)x;
                     }
 
-                    vertices[off + i].y = (short)y;
+                    y = 0;
+                    for (i = 0; i < n; ++i)
+                    {
+                        flags = vertices[off + i].type;
+                        if ((flags & 4) != 0)
+                        {
+                            var dy = (short)points.GetAndIncrease();
+                            y += (flags & 32) != 0 ? dy : -dy;
+                        }
+                        else
+                        {
+                            if ((flags & 32) == 0)
+                            {
+                                y = y + (short)(points[0] * 256 + points[1]);
+                                points += 2;
+                            }
+                        }
+
+                        vertices[off + i].y = (short)y;
+                    }
                 }
 
                 num_vertices = 0;
@@ -868,9 +1044,148 @@ namespace Prowl.Scribe
                 }
             }
 
+            // Hinting has been applied at the coordinate level above
+
             pvertices = vertices;
             return num_vertices;
         }
+
+        private Internal.PointF[] GetHintedRawPoints(int glyphIndex, short numberOfContours, byte[] instructions, float pixelSize)
+        {
+            if (interpreter == null) return null;
+
+            try {
+                // Set up hinting with the current pixel size
+                SetupHinting(pixelSize);
+
+                // Calculate scale factor (matching SharpFont's ComputeScale exactly)
+                var adjustedPixelSize = pixelSize;
+                if (ShouldUseIntegerPpems()) {
+                    adjustedPixelSize = (float)Math.Round(pixelSize);
+                }
+                var unitsPerEm = UnitsPerEm();
+                var scale = adjustedPixelSize / unitsPerEm;
+
+                // Read raw TrueType glyph points following SharpFont's EXACT approach
+                var g = GetGlyfOffset(glyphIndex);
+                var data = this.data;
+
+                var endPtsOfContours = data + g + 10;
+                var ins = ttUSHORT(data + g + 10 + numberOfContours * 2);
+                var points = data + g + 10 + numberOfContours * 2 + 2 + ins;
+                var n = 1 + ttUSHORT(endPtsOfContours + numberOfContours * 2 - 2); // Total number of points
+
+                // Read point flags (following SharpFont's exact approach)
+                var flags = new byte[n];
+                var flagIndex = 0;
+                while (flagIndex < n) {
+                    var flag = points.GetAndIncrease();
+                    flags[flagIndex++] = flag;
+
+                    // If repeat flag is set, repeat this flag for the next n points
+                    if ((flag & 8) != 0) {
+                        var repeatCount = points.GetAndIncrease();
+                        for (int r = 0; r < repeatCount && flagIndex < n; r++) {
+                            flags[flagIndex++] = flag;
+                        }
+                    }
+                }
+
+                // Create raw points array (following SharpFont's Point struct)
+                var rawPoints = new Internal.Point[n];
+
+                // Read X coordinates (delta encoding like SharpFont)
+                var x = 0;
+                for (int i = 0; i < n; i++) {
+                    var flag = flags[i];
+                    var deltaX = 0;
+
+                    if ((flag & 2) != 0) { // ShortX
+                        deltaX = points.GetAndIncrease();
+                        if ((flag & 16) == 0) // If not SameX, negate
+                            deltaX = -deltaX;
+                    } else if ((flag & 16) == 0) { // Not SameX, read 16-bit delta
+                        deltaX = (short)(points.GetAndIncrease() << 8 | points.GetAndIncrease());
+                    }
+                    // If SameX flag is set and not ShortX, delta is 0
+
+                    x += deltaX;
+                    rawPoints[i].X = (Internal.FUnit)x;
+                    rawPoints[i].Type = (flag & 1) != 0 ? Internal.PointType.OnCurve : Internal.PointType.Quadratic;
+                }
+
+                // Read Y coordinates (delta encoding like SharpFont)
+                var y = 0;
+                for (int i = 0; i < n; i++) {
+                    var flag = flags[i];
+                    var deltaY = 0;
+
+                    if ((flag & 4) != 0) { // ShortY
+                        deltaY = points.GetAndIncrease();
+                        if ((flag & 32) == 0) // If not SameY, negate
+                            deltaY = -deltaY;
+                    } else if ((flag & 32) == 0) { // Not SameY, read 16-bit delta
+                        deltaY = (short)(points.GetAndIncrease() << 8 | points.GetAndIncrease());
+                    }
+                    // If SameY flag is set and not ShortY, delta is 0
+
+                    y += deltaY;
+                    rawPoints[i].Y = (Internal.FUnit)y;
+                }
+
+                // Convert to PointF array with scaling (following SharpFont's exact approach)
+                var transform = Matrix3x2.CreateScale(scale);
+                var scaledPoints = new List<Internal.PointF>(n + 4);
+                for (int i = 0; i < n; i++) {
+                    // Follow SharpFont's exact transformation: Vector2.TransformNormal((Vector2)point, transform)
+                    var pointVector = new Vector2((int)rawPoints[i].X, (int)rawPoints[i].Y);
+                    var transformedPoint = Vector2.TransformNormal(pointVector, transform);
+                    scaledPoints.Add(new Internal.PointF(transformedPoint, rawPoints[i].Type));
+                }
+
+                // Add 4 phantom points exactly like SharpFont
+                int advanceWidth = 0, leftSideBearing = 0;
+                GetGlyphHorizontalMetrics(glyphIndex, ref advanceWidth, ref leftSideBearing);
+
+                int minX = 0, minY = 0, maxX = 0, maxY = 0;
+                GetGlyphBox(glyphIndex, ref minX, ref minY, ref maxX, ref maxY);
+
+                // SharpFont's exact phantom point calculation using matrix transformation
+                var pp1 = new Vector2(minX - leftSideBearing, 0);
+                var pp2 = new Vector2(pp1.X + advanceWidth, 0);
+                var pp3 = new Vector2(0, maxY);
+                var pp4 = new Vector2(0, minY);
+
+                scaledPoints.Add(new Internal.PointF(Vector2.TransformNormal(pp1, transform), Internal.PointType.OnCurve));
+                scaledPoints.Add(new Internal.PointF(Vector2.TransformNormal(pp2, transform), Internal.PointType.OnCurve));
+                scaledPoints.Add(new Internal.PointF(Vector2.TransformNormal(pp3, transform), Internal.PointType.OnCurve));
+                scaledPoints.Add(new Internal.PointF(Vector2.TransformNormal(pp4, transform), Internal.PointType.OnCurve));
+
+                // Extract contour endpoints exactly like SharpFont
+                var contours = new int[numberOfContours];
+                for (int i = 0; i < numberOfContours; i++) {
+                    contours[i] = ttUSHORT(endPtsOfContours + i * 2);
+                }
+
+                // Apply hinting
+                var pointArray = scaledPoints.ToArray();
+                interpreter.HintGlyph(pointArray, contours, instructions);
+
+                // Convert hinted points back to font units for Scribe's coordinate system
+                var inverseTransform = Matrix3x2.CreateScale(1.0f / scale);
+                for (int i = 0; i < n; i++) {
+                    var backTransformed = Vector2.TransformNormal(pointArray[i].P, inverseTransform);
+                    pointArray[i] = new Internal.PointF(backTransformed, pointArray[i].Type);
+                }
+
+                return pointArray;
+            }
+            catch (Exception e) {
+                System.Console.WriteLine($"TrueType raw hinting failed: {e.Message}");
+                return null;
+            }
+        }
+
 
         private Buf CidGetGlyphSubrs(int glyph_index)
         {

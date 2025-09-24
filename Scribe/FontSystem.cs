@@ -349,7 +349,7 @@ namespace Prowl.Scribe
             float scale = fontInfo.ScaleForPixelHeight(pixelSize);
 
             int width = 0, height = 0, xoff = 0, yoff = 0;
-            var bitmap = fontInfo.GetGlyphBitmap(scale, scale, glyphIndex, ref width, ref height, ref xoff, ref yoff);
+            var bitmap = fontInfo.GetGlyphBitmap(pixelSize, scale, scale, glyphIndex, ref width, ref height, ref xoff, ref yoff);
 
             if (bitmap.IsNull || width == 0 || height == 0)
                 return null;

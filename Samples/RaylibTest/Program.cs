@@ -460,7 +460,7 @@ for (int i = 0; i < 3; i++) {
 
     static void DrawAtlasView(Texture2D atlasTexture, FontSystem fs)
     {
-        int disp = 300;
+        int disp = 2048;
         int ax = Raylib.GetScreenWidth() - disp - 20;
         int ay = 100;
         Raylib.DrawRectangle(ax - 2, ay - 2, disp + 4, disp + 4, Color.Black);

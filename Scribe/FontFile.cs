@@ -512,7 +512,7 @@ namespace Prowl.Scribe
         {
             if (this.head == 0) return 2048; // Default fallback
 
-            // Units per em is stored at offset 18 in the head table
+            // Units per em is stored at offset 18 in the head table probably... i think?
             return ttUSHORT(this.data + this.head + 18);
         }
 
@@ -542,10 +542,9 @@ namespace Prowl.Scribe
         {
             if (interpreter == null || controlValueTable == null) return;
 
-            // Calculate scale from font units to pixels (following SharpFont's ComputeScale)
             var adjustedPixelSize = pixelSize;
 
-            // Check if font requires integer PPEMs (like SharpFont does)
+            // Check if font requires integer PPEMs
             if (ShouldUseIntegerPpems()) {
                 adjustedPixelSize = (float)Math.Round(pixelSize);
             }
@@ -563,7 +562,7 @@ namespace Prowl.Scribe
             var headTable = (int)FindTable(this.data, (uint)this.fontstart, "head");
             if (headTable == 0) return false;
 
-            var flags = ttUSHORT(this.data + headTable + 16); // flags are at offset 16
+            var flags = ttUSHORT(this.data + headTable + 16); // flags are at offset 16 im pretty sure
             return (flags & 0x0004) != 0; // IntegerPpem = bit 2
         }
 
@@ -753,7 +752,7 @@ namespace Prowl.Scribe
                 return 0;
             numberOfContours = ttSHORT(data + g);
 
-            // Extract glyph instructions for hinting (applies to both simple and composite glyphs)
+            // Extract glyph instructions for hinting
             if (numberOfContours > 0) {
                 var ins = ttUSHORT(data + g + 10 + numberOfContours * 2);
                 if (ins > 0) {
@@ -1044,8 +1043,6 @@ namespace Prowl.Scribe
                 }
             }
 
-            // Hinting has been applied at the coordinate level above
-
             pvertices = vertices;
             return num_vertices;
         }
@@ -1058,7 +1055,7 @@ namespace Prowl.Scribe
                 // Set up hinting with the current pixel size
                 SetupHinting(pixelSize);
 
-                // Calculate scale factor (matching SharpFont's ComputeScale exactly)
+                // Calculate scale factor
                 var adjustedPixelSize = pixelSize;
                 if (ShouldUseIntegerPpems()) {
                     adjustedPixelSize = (float)Math.Round(pixelSize);
@@ -1066,7 +1063,7 @@ namespace Prowl.Scribe
                 var unitsPerEm = UnitsPerEm();
                 var scale = adjustedPixelSize / unitsPerEm;
 
-                // Read raw TrueType glyph points following SharpFont's EXACT approach
+                // Read raw TrueType glyph points
                 var g = GetGlyfOffset(glyphIndex);
                 var data = this.data;
 
@@ -1075,7 +1072,7 @@ namespace Prowl.Scribe
                 var points = data + g + 10 + numberOfContours * 2 + 2 + ins;
                 var n = 1 + ttUSHORT(endPtsOfContours + numberOfContours * 2 - 2); // Total number of points
 
-                // Read point flags (following SharpFont's exact approach)
+                // Read point flags
                 var flags = new byte[n];
                 var flagIndex = 0;
                 while (flagIndex < n) {
@@ -1091,10 +1088,10 @@ namespace Prowl.Scribe
                     }
                 }
 
-                // Create raw points array (following SharpFont's Point struct)
+                // Create raw points array
                 var rawPoints = new Internal.Point[n];
 
-                // Read X coordinates (delta encoding like SharpFont)
+                // Read X coordinates
                 var x = 0;
                 for (int i = 0; i < n; i++) {
                     var flag = flags[i];
@@ -1114,7 +1111,7 @@ namespace Prowl.Scribe
                     rawPoints[i].Type = (flag & 1) != 0 ? Internal.PointType.OnCurve : Internal.PointType.Quadratic;
                 }
 
-                // Read Y coordinates (delta encoding like SharpFont)
+                // Read Y coordinates
                 var y = 0;
                 for (int i = 0; i < n; i++) {
                     var flag = flags[i];
@@ -1133,17 +1130,16 @@ namespace Prowl.Scribe
                     rawPoints[i].Y = (Internal.FUnit)y;
                 }
 
-                // Convert to PointF array with scaling (following SharpFont's exact approach)
+                // Convert to PointF array with scaling
                 var transform = Matrix3x2.CreateScale(scale);
                 var scaledPoints = new List<Internal.PointF>(n + 4);
                 for (int i = 0; i < n; i++) {
-                    // Follow SharpFont's exact transformation: Vector2.TransformNormal((Vector2)point, transform)
                     var pointVector = new Vector2((int)rawPoints[i].X, (int)rawPoints[i].Y);
                     var transformedPoint = Vector2.TransformNormal(pointVector, transform);
                     scaledPoints.Add(new Internal.PointF(transformedPoint, rawPoints[i].Type));
                 }
 
-                // Add 4 phantom points exactly like SharpFont
+                // Add 4 phantom points
                 int advanceWidth = 0, leftSideBearing = 0;
                 GetGlyphHorizontalMetrics(glyphIndex, ref advanceWidth, ref leftSideBearing);
 
@@ -1161,7 +1157,7 @@ namespace Prowl.Scribe
                 scaledPoints.Add(new Internal.PointF(Vector2.TransformNormal(pp3, transform), Internal.PointType.OnCurve));
                 scaledPoints.Add(new Internal.PointF(Vector2.TransformNormal(pp4, transform), Internal.PointType.OnCurve));
 
-                // Extract contour endpoints exactly like SharpFont
+                // Extract contour endpoints
                 var contours = new int[numberOfContours];
                 for (int i = 0; i < numberOfContours; i++) {
                     contours[i] = ttUSHORT(endPtsOfContours + i * 2);
@@ -1171,7 +1167,7 @@ namespace Prowl.Scribe
                 var pointArray = scaledPoints.ToArray();
                 interpreter.HintGlyph(pointArray, contours, instructions);
 
-                // Convert hinted points back to font units for Scribe's coordinate system
+                // Convert hinted points back to font units
                 var inverseTransform = Matrix3x2.CreateScale(1.0f / scale);
                 for (int i = 0; i < n; i++) {
                     var backTransformed = Vector2.TransformNormal(pointArray[i].P, inverseTransform);

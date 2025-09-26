@@ -82,7 +82,8 @@ namespace Prowl.Scribe
         public List<StyleSpan> StyleSpans;
         public MarkdownLayoutSettings LayoutSettings;
 
-        private static Stack<TextLayoutSettings> _pool = new Stack<TextLayoutSettings>();
+        private static List<TextLayoutSettings> _pool = new List<TextLayoutSettings>();
+        private static int _currIdx = 0;
         
         public static TextLayoutSettings Default => new TextLayoutSettings {
             PixelSize = 16,
@@ -115,9 +116,16 @@ namespace Prowl.Scribe
         
         public static TextLayoutSettings Get()
         {
-            if (!_pool.TryPop(out TextLayoutSettings settings))
+            TextLayoutSettings settings;
+            if (_currIdx == 0)
             {
                 settings = new TextLayoutSettings();
+                _pool.Add(settings);
+            }
+            else
+            {
+                settings = _pool[_currIdx];
+                _currIdx--;
             }
             
             settings.SetDefaultValues();
@@ -127,7 +135,9 @@ namespace Prowl.Scribe
         public static void Return(TextLayoutSettings settings)
         {
             settings.StyleSpans.Clear();
-            _pool.Push(settings);
+            if(_currIdx+1 < _pool.Count) _currIdx++;
+        }
+
         }
     }
 

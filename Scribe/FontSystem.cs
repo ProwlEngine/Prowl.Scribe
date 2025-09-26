@@ -429,6 +429,7 @@ namespace Prowl.Scribe
             settings.LetterSpacing = letterSpacing;
 
             var layout = CreateLayout(text, settings);
+            TextLayoutSettings.Return(settings);
             return layout.Size;
         }
 
@@ -446,6 +447,8 @@ namespace Prowl.Scribe
             settings.LetterSpacing = letterSpacing;
 
             DrawText(text, position, color, settings);
+            
+            TextLayoutSettings.Return(settings);
         }
 
 

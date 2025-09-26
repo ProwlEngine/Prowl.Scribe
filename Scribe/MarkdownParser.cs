@@ -212,9 +212,23 @@ namespace Prowl.Scribe
 
     public static class Markdown
     {
+        private static Dictionary<ulong, Document> _documentCache = new Dictionary<ulong, Document>();
+
+        public static void ClearDocumentCache()
+        {
+            _documentCache.Clear();
+        }
+
         // Entry point
         public static Document Parse(string input)
         {
+            ulong hash = ComputeFnv1AHash(input);
+            
+            if (_documentCache.TryGetValue(hash, out Document document))
+            {
+                return document;
+            }
+            
             var text = Normalize(input);
             var pos = 0;
             var blocks = new List<Block>();
@@ -234,7 +248,11 @@ namespace Prowl.Scribe
                 // Paragraph (until blank line or next block)
                 blocks.Add(Block.From(ParseParagraph(text, ref pos)));
             }
-            return new Document(blocks);
+            
+            document = new Document(blocks);
+            
+            _documentCache.Add(hash, document);
+            return document;
         }
 
         #region Block helpers
@@ -293,7 +311,8 @@ namespace Prowl.Scribe
             quote = default;
             if (!AtLineStart(text, pos)) return false;
             int i = pos;
-            var sb = new StringBuilder();
+            var sb = _stringBuilder;
+            sb.Clear();
             bool any = false;
             while (i < text.Length)
             {
@@ -369,7 +388,8 @@ namespace Prowl.Scribe
 
                 // Gather any following indented lines as the item's continuation
                 int j = NextLineStart(text, le);
-                var cont = new StringBuilder();
+                var cont = _stringBuilder;
+                cont.Clear();
                 while (j < text.Length)
                 {
                     int le2 = LineEnd(text, j);
@@ -623,6 +643,7 @@ namespace Prowl.Scribe
             return list;
         }
 
+        private static StringBuilder _stringBuilder = new StringBuilder();
         private static List<Inline> ApplyStyles(List<Inline> tokens)
         {
             // Join Text runs first
@@ -632,7 +653,8 @@ namespace Prowl.Scribe
             {
                 if (t.Kind != InlineKind.Text) { output.Add(t); continue; }
                 string s = t.Text;
-                var sb = new StringBuilder();
+                var sb = _stringBuilder;
+                sb.Clear();
                 int i = 0;
                 while (i < s.Length)
                 {
@@ -703,11 +725,26 @@ namespace Prowl.Scribe
             return -1;
         }
 
+        private static Stack<Inline> _inlinePool;
+
+        private static Inline GetInlineFromPool()
+        {
+            if (_inlinePool.TryPop(out Inline inline))
+            {
+                return inline;
+            }
+
+            return new Inline();
+        }
+        
         private static List<Inline> CoalesceText(List<Inline> list)
         {
             if (list.Count == 0) return list;
+            
             var res = new List<Inline>(list.Count);
-            var sb = (StringBuilder)null;
+            var sb = _stringBuilder;
+            sb.Clear();
+            
             void Flush()
             {
                 if (sb != null && sb.Length > 0) { res.Add(Inline.TextRun(sb.ToString())); sb.Clear(); }
@@ -716,7 +753,7 @@ namespace Prowl.Scribe
             {
                 if (it.Kind == InlineKind.Text)
                 {
-                    sb ??= new StringBuilder(); sb.Append(it.Text);
+                    sb.Append(it.Text);
                 }
                 else { Flush(); res.Add(it); }
             }
@@ -877,6 +914,20 @@ namespace Prowl.Scribe
             return arr;
         }
 
+        private static ulong ComputeFnv1AHash(string input)
+        {
+            ulong fnvOffsetBasis = 14695981039346656037UL;
+            ulong fnvPrime = 1099511628211UL;
+
+            ulong hash = fnvOffsetBasis;
+            foreach (byte b in Encoding.UTF8.GetBytes(input))
+            {
+                hash ^= b;
+                hash *= fnvPrime;
+            }
+            return hash;
+        }
+        
         #endregion
     }
 

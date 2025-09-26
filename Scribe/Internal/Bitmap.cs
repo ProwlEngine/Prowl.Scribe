@@ -1,4 +1,7 @@
 ﻿using System;
+using System.Buffers;
+using System.Collections;
+using System.Collections.Generic;
 using System.Numerics;
 using static Prowl.Scribe.Internal.Common;
 
@@ -11,7 +14,7 @@ namespace Prowl.Scribe.Internal
         public int h;                 // Height in pixels
         public int stride;            // Row stride in bytes
         public FakePtr<byte> pixels;  // Pixel buffer (8-bit coverage)
-
+        private List<ActiveEdge> _createdActiveEdges = new List<ActiveEdge>();
         /// <summary>Flatten curves → rasterize.</summary>
         public void Rasterize(
             float flatnessInPixels,
@@ -213,15 +216,16 @@ namespace Prowl.Scribe.Internal
                 e = e.next;
             }
         }
-
+        
         /// <summary>Main scanline rasterization over sorted edges. Uses a sentinel head for the active edge list.</summary>
         private void RasterizeSortedEdges(FakePtr<Edge> edges, int count, int vsubsample, int offX, int offY)
         {
             // Active list sentinel (dummy head)
-            var head = new ActiveEdge { next = null };
+            var head = ActiveEdge.Get();
+            _createdActiveEdges.Add(head);
 
             // Scratch scanlines: coverage + running sums
-            float[] scanline = w > 64 ? new float[w * 2 + 1] : new float[129];
+            float[] scanline = w > 64 ? ArrayPool<float>.Shared.Rent(w * 2 + 1) : ArrayPool<float>.Shared.Rent(129);
             int scanlineFill = w; // second half holds column sums
 
             int y = offY;   // absolute y in destination bitmap
@@ -299,11 +303,20 @@ namespace Prowl.Scribe.Internal
                 ++y;
                 ++row;
             }
+
+            foreach (ActiveEdge edge in _createdActiveEdges)
+            {
+                ActiveEdge.Return(edge);
+            }
+            
+            _createdActiveEdges.Clear();
+            ArrayPool<float>.Shared.Return(scanline);
         }
 
         private ActiveEdge NewActive(Edge e, int offX, float startY)
         {
-            var z = new ActiveEdge();
+            var z = ActiveEdge.Get();
+            _createdActiveEdges.Add(z);
             float dxdy = (e.x1 - e.x0) / (e.y1 - e.y0); // safe: edges generated with y0 != y1
             z.fdx = dxdy;
             z.fdy = dxdy != 0.0f ? 1.0f / dxdy : 0.0f;
@@ -327,8 +340,9 @@ namespace Prowl.Scribe.Internal
             for (int i = 0; i < windings; ++i) totalEdges += wcount[i];
 
             // +1 sentinel edge
-            var edges = new Edge[totalEdges + 1];
-            for (int i = 0; i < edges.Length; ++i) edges[i] = new Edge();
+            int edgesLength = totalEdges + 1;
+            var edges = ArrayPool<Edge>.Shared.Rent(edgesLength);
+            for (int i = 0; i < edgesLength; ++i) edges[i] = Edge.Get();
 
             int n = 0; // number of produced edges
             int m = 0; // running index into pts per winding
@@ -368,6 +382,13 @@ namespace Prowl.Scribe.Internal
             SortEdgesInsSort(edgePtr, n);
 
             RasterizeSortedEdges(edgePtr, n, vsubsample, offX, offY);
+            
+            for (int i = 0; i < edgesLength; i++)
+            {
+                Edge.Return(edges[i]);
+            }
+            ArrayPool<Edge>.Shared.Return(edges);
+            edgePtr.Clear(edgesLength);
         }
 
         private Vector2[] FlattenCurves(GlyphVertex[] vertices, int numVerts, float objspaceFlatness, out int[] contourLengths, out int numContours)
@@ -612,6 +633,26 @@ namespace Prowl.Scribe.Internal
             public float fx;
             public ActiveEdge next;
             public float sy;
+
+            private static Stack<ActiveEdge> _pool = new Stack<ActiveEdge>();
+
+            public static ActiveEdge Get()
+            {
+                if (_pool.TryPop(out ActiveEdge edge))
+                {
+                    edge.next = null;
+                    return edge;
+                }
+
+                return new ActiveEdge();
+            }
+
+            public static void Return(ActiveEdge edge)
+            {
+                if (edge == null)
+                    throw new InvalidOperationException("Objects cannot be null when going into the stack!");
+                _pool.Push(edge);
+            }
         }
 
         private class Edge
@@ -619,6 +660,26 @@ namespace Prowl.Scribe.Internal
             public int invert;
             public float x0, x1;
             public float y0, y1;
+
+            private static Stack<Edge> _pool = new Stack<Edge>();
+
+            public static Edge Get()
+            {
+                if (_pool.TryPop(out Edge edge))
+                {
+                    return edge;
+                }
+
+                return new Edge();
+            }
+
+            public static void Return(Edge edge)
+            {
+                if (edge == null)
+                    throw new InvalidOperationException("Objects cannot be null when going into the stack!");
+                
+                _pool.Push(edge);
+            }
         }
     }
 }
